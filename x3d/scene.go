@@ -17,7 +17,8 @@ type Texture struct {
 }
 
 type Appearance struct {
-	Texture *Texture
+	DiffuseColor mgl32.Vec3
+	Texture      *Texture
 }
 
 type IndexedFaceSet struct {

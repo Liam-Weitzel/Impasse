@@ -165,6 +165,16 @@ func (pc *parseContext) sendTextureToAppearance(texture *Texture) bool {
 	})
 }
 
+func (pc *parseContext) sendDiffuseColorToAppearance(dc mgl32.Vec3) bool {
+	return pc.sendTo(func(h elementEnder) bool {
+		ah, ok := h.(*appearanceHandler)
+		if ok {
+			ah.Appearance.DiffuseColor = dc
+		}
+		return ok
+	})
+}
+
 func (pc *parseContext) sendGeometryToShape(geometry *IndexedFaceSet) bool {
 	return pc.sendTo(func(h elementEnder) bool {
 		sh, ok := h.(*shapeHandler)
@@ -318,6 +328,19 @@ func (pc *parseContext) handleTextureCoordinate(se xml.StartElement) (elementEnd
 	return noEndHandler, nil
 }
 
+func (pc *parseContext) handleMaterial(se xml.StartElement) (elementEnder, error) {
+	if v, ok := findAttr("diffuseColor", se.Attr); ok {
+		dc, err := parseVector3(v)
+		if err != nil {
+			return nil, fmt.Errorf("Invalid diffuseColor: %v", err)
+		}
+		if !pc.sendDiffuseColorToAppearance(dc) {
+			return nil, errors.New("Material not in Appearance")
+		}
+	}
+	return noEndHandler, nil
+}
+
 var startElements = map[string]func(
 	*parseContext, xml.StartElement) (elementEnder, error){
 	"Viewpoint":         (*parseContext).viewpointHandler,
@@ -327,6 +350,7 @@ var startElements = map[string]func(
 	"IndexedFaceSet":    (*parseContext).handleIndexedFaceSet,
 	"Coordinate":        (*parseContext).handleCoordinate,
 	"TextureCoordinate": (*parseContext).handleTextureCoordinate,
+	"Material":          (*parseContext).handleMaterial,
 }
 
 func ParseScene(r io.Reader) (*Scene, error) {
