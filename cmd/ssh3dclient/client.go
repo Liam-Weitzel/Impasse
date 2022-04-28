@@ -14,7 +14,6 @@ import (
 	gl "github.com/go-gl/gl/v3.0/gles2"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/veandco/go-sdl2/sdl"
-	"golang.org/x/image/draw"
 
 	_ "embed"
 )
@@ -99,7 +98,7 @@ type client struct {
 	img    *image.RGBA
 	canvas *image.RGBA
 
-	concurrent bool
+	geoms bool
 
 	window    *sdl.Window
 	glVersion string
@@ -109,9 +108,8 @@ type client struct {
 
 func newClient(window *sdl.Window) *client {
 	return &client{
-		window:     window,
-		concurrent: true,
-		img:        image.NewRGBA(image.Rect(0, 0, renderWidth, renderHeight)),
+		window: window,
+		img:    image.NewRGBA(image.Rect(0, 0, renderWidth, renderHeight)),
 	}
 }
 
@@ -420,7 +418,7 @@ func (c *client) blitRunesConcurrent(s tcell.Screen) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rc := RuneConverter{}
+			rc := NewRuneConverter(c.geoms)
 			for i := range rows {
 				x, y := 0, i*8
 				cells := alloc()
@@ -456,30 +454,6 @@ func (c *client) blitRunesConcurrent(s tcell.Screen) {
 	<-done
 }
 
-func (c *client) blitRunes(s tcell.Screen) {
-
-	rc := RuneConverter{}
-	width, height := c.canvas.Rect.Dx(), c.canvas.Rect.Dy()
-
-	i := 0
-	for y := 0; y < height; y, i = y+8, i+1 {
-		j := 0
-		for x := 0; x < width; x, j = x+4, j+1 {
-			rc.Extract(c.canvas, x, y)
-			st := tcell.StyleDefault.
-				Foreground(tcell.NewRGBColor(
-					int32(rc.FGColor[0]),
-					int32(rc.FGColor[1]),
-					int32(rc.FGColor[2]))).
-				Background(tcell.NewRGBColor(
-					int32(rc.BGColor[0]),
-					int32(rc.BGColor[1]),
-					int32(rc.BGColor[2])))
-			s.SetContent(j, i, rc.CodePoint, nil, st)
-		}
-	}
-}
-
 func writeString(sc tcell.Screen, x, y int, s string, st tcell.Style) {
 	for _, r := range s {
 		if r != ' ' {
@@ -501,15 +475,15 @@ func (c *client) hud(s tcell.Screen, frameTime time.Duration) {
 
 	width, height := s.Size()
 
-	var concurrency string
-	if c.concurrent {
-		concurrency = "on"
+	var geoms string
+	if c.geoms {
+		geoms = "on"
 	} else {
-		concurrency = "off"
+		geoms = "off"
 	}
 
 	writeString(s, 0, 0,
-		fmt.Sprintf("ESC: Quit|C: Toggle concurrency [%s]", concurrency), st)
+		fmt.Sprintf("ESC: Quit|G: geometrical shapes [%s]", geoms), st)
 
 	driver := fmt.Sprintf("Driver: %s", c.glVersion)
 
@@ -530,17 +504,9 @@ func (c *client) render(screen tcell.Screen) {
 		c.canvas = image.NewRGBA(sdim)
 	}
 
-	if c.concurrent {
-		rez.Convert(c.canvas, c.img, rez.NewBilinearFilter())
-	} else {
-		draw.ApproxBiLinear.Scale(c.canvas, sdim, c.img, c.img.Bounds(), draw.Src, nil)
-	}
+	rez.Convert(c.canvas, c.img, rez.NewBilinearFilter())
 
-	if c.concurrent {
-		c.blitRunesConcurrent(screen)
-	} else {
-		c.blitRunes(screen)
-	}
+	c.blitRunesConcurrent(screen)
 
 	c.hud(screen, time.Since(start))
 
@@ -597,8 +563,8 @@ func (c *client) run(screen tcell.Screen) error {
 					return nil
 				case tcell.KeyRune:
 					switch ev.Rune() {
-					case 'c':
-						c.concurrent = !c.concurrent
+					case 'g':
+						c.geoms = !c.geoms
 					}
 				}
 			}
