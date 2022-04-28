@@ -14,7 +14,6 @@ import (
 	gl "github.com/go-gl/gl/v3.0/gles2"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/veandco/go-sdl2/sdl"
-	"golang.org/x/image/draw"
 
 	_ "embed"
 )
@@ -32,8 +31,11 @@ var vertexSrc string
 //go:embed texture.frag
 var fragSrc string
 
-//go:embed texture.png
-var textureSrc []byte
+//go:embed texture1.png
+var textureSrc1 []byte
+
+//go:embed texture2.png
+var textureSrc2 []byte
 
 const (
 	cubeSize  = 100
@@ -94,12 +96,14 @@ type client struct {
 	viewMat      mgl32.Mat4
 	mvMatLoc     int32
 	normalMatLoc int32
-	prevTime     time.Time
+
+	mixLoc   int32
+	mixValue float32
+
+	prevTime time.Time
 
 	img    *image.RGBA
 	canvas *image.RGBA
-
-	concurrent bool
 
 	window    *sdl.Window
 	glVersion string
@@ -109,9 +113,8 @@ type client struct {
 
 func newClient(window *sdl.Window) *client {
 	return &client{
-		window:     window,
-		concurrent: true,
-		img:        image.NewRGBA(image.Rect(0, 0, renderWidth, renderHeight)),
+		window: window,
+		img:    image.NewRGBA(image.Rect(0, 0, renderWidth, renderHeight)),
 	}
 }
 
@@ -185,34 +188,54 @@ func (c *client) setupOGL() error {
 	gl.UseProgram(prog)
 
 	var img *image.RGBA
-	if img, err = rgbaFromBytes(textureSrc); err != nil {
+	if img, err = rgbaFromBytes(textureSrc1); err != nil {
 		return err
 	}
 
-	var texture uint32
-	if texture, err = loadTextureFromRGBA(img); err != nil {
+	gl.ActiveTexture(gl.TEXTURE0)
+
+	var texture1 uint32
+	if texture1, err = loadTextureFromRGBA(img); err != nil {
 		return err
 	}
-	c.chainCleanUp(func(*client) { gl.DeleteBuffers(1, &texture) })
+	c.chainCleanUp(func(*client) { gl.DeleteBuffers(1, &texture1) })
 
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, texture)
+	gl.BindTexture(gl.TEXTURE_2D, texture1)
+
+	if img, err = rgbaFromBytes(textureSrc2); err != nil {
+		return err
+	}
+
+	gl.ActiveTexture(gl.TEXTURE1)
+
+	var texture2 uint32
+	if texture2, err = loadTextureFromRGBA(img); err != nil {
+		return err
+	}
+	c.chainCleanUp(func(*client) { gl.DeleteBuffers(1, &texture2) })
+
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.BindTexture(gl.TEXTURE_2D, texture2)
 
 	var (
-		texSamplerUniformLoc int32
-		projMatLoc           int32
-		lightPosLoc          int32
-		ambientColLoc        int32
-		diffuseColLoc        int32
+		texSamplerUniformLoc1 int32
+		texSamplerUniformLoc2 int32
+		projMatLoc            int32
+		lightPosLoc           int32
+		ambientColLoc         int32
+		diffuseColLoc         int32
 	)
 
 	for _, l := range []struct {
 		name string
 		addr *int32
 	}{
-		{"texSampler", &texSamplerUniformLoc},
+		{"texSampler1", &texSamplerUniformLoc1},
+		{"texSampler2", &texSamplerUniformLoc2},
+		{"mixture", &c.mixLoc},
 		{"mvMat", &c.mvMatLoc},
 		{"projMat", &projMatLoc},
 		{"ambientCol", &ambientColLoc},
@@ -226,7 +249,8 @@ func (c *client) setupOGL() error {
 		}
 	}
 
-	gl.Uniform1i(texSamplerUniformLoc, 0)
+	gl.Uniform1i(texSamplerUniformLoc1, 0)
+	gl.Uniform1i(texSamplerUniformLoc2, 1)
 
 	var vbo uint32
 	if vbo, err = vboCreate(vertices); err != nil {
@@ -347,6 +371,8 @@ func (c *client) renderOpenGL() {
 	gl.UniformMatrix4fv(c.mvMatLoc, 1, false, &mvMat[0])
 	gl.UniformMatrix4fv(c.normalMatLoc, 1, false, &normalMat[0])
 
+	gl.Uniform1f(c.mixLoc, c.mixValue)
+
 	gl.BindFramebuffer(gl.FRAMEBUFFER, c.fbo)
 
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -456,30 +482,6 @@ func (c *client) blitRunesConcurrent(s tcell.Screen) {
 	<-done
 }
 
-func (c *client) blitRunes(s tcell.Screen) {
-
-	rc := RuneConverter{}
-	width, height := c.canvas.Rect.Dx(), c.canvas.Rect.Dy()
-
-	i := 0
-	for y := 0; y < height; y, i = y+8, i+1 {
-		j := 0
-		for x := 0; x < width; x, j = x+4, j+1 {
-			rc.Extract(c.canvas, x, y)
-			st := tcell.StyleDefault.
-				Foreground(tcell.NewRGBColor(
-					int32(rc.FGColor[0]),
-					int32(rc.FGColor[1]),
-					int32(rc.FGColor[2]))).
-				Background(tcell.NewRGBColor(
-					int32(rc.BGColor[0]),
-					int32(rc.BGColor[1]),
-					int32(rc.BGColor[2])))
-			s.SetContent(j, i, rc.CodePoint, nil, st)
-		}
-	}
-}
-
 func writeString(sc tcell.Screen, x, y int, s string, st tcell.Style) {
 	for _, r := range s {
 		if r != ' ' {
@@ -501,21 +503,16 @@ func (c *client) hud(s tcell.Screen, frameTime time.Duration) {
 
 	width, height := s.Size()
 
-	var concurrency string
-	if c.concurrent {
-		concurrency = "on"
-	} else {
-		concurrency = "off"
-	}
-
 	writeString(s, 0, 0,
-		fmt.Sprintf("ESC: Quit|C: Toggle concurrency [%s]", concurrency), st)
+		fmt.Sprintf("ESC: Quit | +/-: Blend textures [%1.2f]", c.mixValue), st)
 
 	driver := fmt.Sprintf("Driver: %s", c.glVersion)
 
 	writeString(s, width-len(driver), height-1, driver, st)
 
-	writeString(s, 0, height-1, fmt.Sprintf("Frame time: %v", frameTime), st)
+	writeString(s, 0, height-1,
+		fmt.Sprintf("Frame time: %.2fms",
+			float64(frameTime.Microseconds())/1000), st)
 }
 
 func (c *client) render(screen tcell.Screen) {
@@ -530,17 +527,9 @@ func (c *client) render(screen tcell.Screen) {
 		c.canvas = image.NewRGBA(sdim)
 	}
 
-	if c.concurrent {
-		rez.Convert(c.canvas, c.img, rez.NewBilinearFilter())
-	} else {
-		draw.ApproxBiLinear.Scale(c.canvas, sdim, c.img, c.img.Bounds(), draw.Src, nil)
-	}
+	rez.Convert(c.canvas, c.img, rez.NewBilinearFilter())
 
-	if c.concurrent {
-		c.blitRunesConcurrent(screen)
-	} else {
-		c.blitRunes(screen)
-	}
+	c.blitRunesConcurrent(screen)
 
 	c.hud(screen, time.Since(start))
 
@@ -597,8 +586,10 @@ func (c *client) run(screen tcell.Screen) error {
 					return nil
 				case tcell.KeyRune:
 					switch ev.Rune() {
-					case 'c':
-						c.concurrent = !c.concurrent
+					case '-':
+						c.mixValue = float32(math.Max(0, float64(c.mixValue-0.05)))
+					case '+':
+						c.mixValue = float32(math.Min(1, float64(c.mixValue+0.05)))
 					}
 				}
 			}

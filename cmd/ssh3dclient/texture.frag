@@ -10,7 +10,11 @@ in vec3 lightVec;
 
 out vec4 fragColor;
 
-uniform sampler2D texSampler;
+uniform sampler2D texSampler1;
+uniform sampler2D texSampler2;
+
+uniform float mixture;
+
 uniform vec3 ambientCol; // The light and object's combined ambient color
 uniform vec3 diffuseCol;  // The light and object's combined diffuse color
 
@@ -18,7 +22,10 @@ const float invRadiusSq = 0.00001;
 
 void main() {
     // base color from diffuse texture
-    vec4 col = texture(texSampler, texCoord);
+    vec4 col1 = texture(texSampler1, texCoord);
+    vec4 col2 = texture(texSampler2, texCoord);
+
+    vec4 col = mix(col1, col2, mixture);
 
     // ambient lighting
     vec3 ambient = vec3(ambientCol * col.xyz);
