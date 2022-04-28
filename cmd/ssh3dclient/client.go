@@ -22,7 +22,7 @@ const framesPerSecond = 10
 
 const (
 	renderWidth  = 640
-	renderHeight = 480
+	renderHeight = 400
 )
 
 //go:embed texture.vert
@@ -99,6 +99,8 @@ type client struct {
 
 	mixLoc   int32
 	mixValue float32
+
+	showTime time.Duration
 
 	prevTime time.Time
 
@@ -511,8 +513,9 @@ func (c *client) hud(s tcell.Screen, frameTime time.Duration) {
 	writeString(s, width-len(driver), height-1, driver, st)
 
 	writeString(s, 0, height-1,
-		fmt.Sprintf("Frame time: %.2fms",
-			float64(frameTime.Microseconds())/1000), st)
+		fmt.Sprintf("Frame time: %.2fms [%.2fms]",
+			float64(frameTime.Microseconds()/1000),
+			float64(c.showTime.Microseconds())/1000), st)
 }
 
 func (c *client) render(screen tcell.Screen) {
@@ -570,7 +573,9 @@ func (c *client) run(screen tcell.Screen) error {
 
 	for {
 		c.render(screen)
+		start := time.Now()
 		screen.Show()
+		c.showTime = time.Since(start)
 
 		select {
 		case <-ticker.C:
