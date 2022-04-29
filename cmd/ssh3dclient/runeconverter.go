@@ -96,19 +96,19 @@ var bitmaps = []bitsRune{
 
 	// Geometrical shapes. Tricky because some of them are too wide.
 
+	{0x00ffff00, '\u25fe'}, // Black medium small square
+
+	{0x00066000, '\u25aa'}, // Black small square
+
+	{0x11224488, '\u2571'}, // diagonals
+	{0x88442211, '\u2572'},
+	{0x99666699, '\u2573'},
+	{0x000137f0, '\u25e2'}, // Triangles
+	{0x0008cef0, '\u25e3'},
+	{0x000fec80, '\u25e4'},
+	{0x000f7310, '\u25e5'},
 	/*
-		//{0x00ffff00, '\u25fe'}, // Black medium small square
-
-		{0x00066000, '\u25aa'}, // Black small square
-
-		{0x11224488, '\u2571'}, // diagonals
-		{0x88442211, '\u2572'},
-		{0x99666699, '\u2573'},
-		{0x000137f0, '\u25e2'}, // Triangles
-		{0x0008cef0, '\u25e3'},
-		{0x000fec80, '\u25e4'},
-		{0x000f7310, '\u25e5'},
-	*/
+	 */
 }
 
 var shades = []rune{
@@ -120,10 +120,21 @@ var shades = []rune{
 }
 
 type RuneConverter struct {
+	bitmaps   []bitsRune
 	CodePoint rune
 
 	BGColor [3]int
 	FGColor [3]int
+}
+
+func NewRuneConverter(useGeoms bool) RuneConverter {
+	var bms []bitsRune
+	if useGeoms {
+		bms = bitmaps
+	} else {
+		bms = bitmaps[:len(bitmaps)-9]
+	}
+	return RuneConverter{bitmaps: bms}
 }
 
 func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
@@ -214,8 +225,8 @@ func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
 	bestDiff := math.MaxInt32
 	invert := false
 
-	for i := range bitmaps {
-		bm := &bitmaps[i]
+	for i := range rc.bitmaps {
+		bm := &rc.bitmaps[i]
 		if diff := bits.OnesCount32(bm.pixel ^ pixel); diff < bestDiff {
 			bestDiff = diff
 			rc.CodePoint = bm.r

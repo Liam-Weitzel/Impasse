@@ -107,6 +107,8 @@ type client struct {
 	img    *image.RGBA
 	canvas *image.RGBA
 
+	geoms bool
+
 	window    *sdl.Window
 	glVersion string
 
@@ -448,7 +450,7 @@ func (c *client) blitRunesConcurrent(s tcell.Screen) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rc := RuneConverter{}
+			rc := NewRuneConverter(c.geoms)
 			for i := range rows {
 				x, y := 0, i*8
 				cells := alloc()
@@ -505,8 +507,16 @@ func (c *client) hud(s tcell.Screen, frameTime time.Duration) {
 
 	width, height := s.Size()
 
+	var geoms string
+	if c.geoms {
+		geoms = "on"
+	} else {
+		geoms = "off"
+	}
+
 	writeString(s, 0, 0,
-		fmt.Sprintf("ESC: Quit | +/-: Blend textures [%1.2f]", c.mixValue), st)
+		fmt.Sprintf("ESC: Quit | +/-: Blend textures [%1.2f] | A: Approximate with shapes [%s]",
+			c.mixValue, geoms), st)
 
 	driver := fmt.Sprintf("Driver: %s", c.glVersion)
 
@@ -595,6 +605,8 @@ func (c *client) run(screen tcell.Screen) error {
 						c.mixValue = float32(math.Max(0, float64(c.mixValue-0.05)))
 					case '+':
 						c.mixValue = float32(math.Min(1, float64(c.mixValue+0.05)))
+					case 'a':
+						c.geoms = !c.geoms
 					}
 				}
 			}
