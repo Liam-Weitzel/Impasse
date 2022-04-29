@@ -602,9 +602,9 @@ func (c *client) run(screen tcell.Screen) error {
 				case tcell.KeyRune:
 					switch ev.Rune() {
 					case '-':
-						c.mixValue = float32(math.Max(0, float64(c.mixValue-0.05)))
+						c.mixValue = mgl32.Clamp(c.mixValue-0.05, 0, 1)
 					case '+':
-						c.mixValue = float32(math.Min(1, float64(c.mixValue+0.05)))
+						c.mixValue = mgl32.Clamp(c.mixValue+0.05, 0, 1)
 					case 'a':
 						c.geoms = !c.geoms
 					}
