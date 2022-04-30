@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
@@ -33,15 +34,23 @@ func loadScene(fname string) (*x3d.Scene, error) {
 	return x3d.ParseScene(r)
 }
 
+func check(err error) {
+	if err != nil {
+		log.Fatalf("error: %v\n", err)
+	}
+}
+
 func main() {
 	sceneFile := flag.String("scene", "scene.x3d.gz", "X3D scene to load")
 	flag.Parse()
 
 	scene, err := loadScene(*sceneFile)
-	if err != nil {
-		log.Fatalf("error: %v\n", err)
-	}
+	check(err)
+	directory := filepath.Dir(*sceneFile)
 
-	log.Printf("num shapes: %d\n", len(scene.Shapes))
+	var client *client
+	client, err = newClient(scene, directory)
+	check(err)
 
+	check(client.run())
 }
