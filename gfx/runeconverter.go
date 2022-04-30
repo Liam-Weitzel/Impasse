@@ -1,7 +1,7 @@
 // This is Free Software covered by the terms of the Apache 2.0 license.
 // See LICENSE file for details.
 // (c) 2018 by Sascha L. Teichmann
-package main
+package gfx
 
 import (
 	"image"
