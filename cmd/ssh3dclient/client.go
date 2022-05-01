@@ -134,21 +134,13 @@ func (c *client) chainCleanUp(fn func(*client)) {
 }
 
 func (c *client) shutdown() {
-	sdl.Do(func() {
-		if c.cleanup != nil {
-			c.cleanup(c)
-			c.cleanup = nil
-		}
-	})
+	if c.cleanup != nil {
+		c.cleanup(c)
+		c.cleanup = nil
+	}
 }
 
 func (c *client) setupOpenGL() error {
-	var err error
-	sdl.Do(func() { err = c.setupOGL() })
-	return err
-}
-
-func (c *client) setupOGL() error {
 	var err error
 	if c.context, err = c.window.GLCreateContext(); err != nil {
 		return err
@@ -414,9 +406,7 @@ func writeString(sc tcell.Screen, x, y int, s string, st tcell.Style) {
 
 func (c *client) hud(s tcell.Screen, frameTime time.Duration) {
 	if c.glVersion == "" {
-		sdl.Do(func() {
-			c.glVersion = gl.GoStr(gl.GetString(gl.VERSION))
-		})
+		c.glVersion = gl.GoStr(gl.GetString(gl.VERSION))
 	}
 	st := tcell.StyleDefault.
 		Background(tcell.ColorBlack).
@@ -447,7 +437,7 @@ func (c *client) hud(s tcell.Screen, frameTime time.Duration) {
 
 func (c *client) render(screen tcell.Screen) {
 	start := time.Now()
-	sdl.Do(c.renderOpenGL)
+	c.renderOpenGL()
 
 	swidth, sheight := screen.Size()
 

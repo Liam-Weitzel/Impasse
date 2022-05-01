@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
@@ -43,6 +44,35 @@ func check(err error) {
 	}
 }
 
+func init() {
+	runtime.LockOSThread()
+}
+
+func logWrap(fname string, fn func() error) (err error) {
+	if fname == "" {
+		return fn()
+	}
+	var (
+		old  = log.Writer()
+		logF *os.File
+	)
+	if logF, err = os.OpenFile(
+		fname, os.O_CREATE|os.O_APPEND|os.O_WRONLY,
+		0666,
+	); err != nil {
+		return
+	}
+	defer func() {
+		log.SetOutput(old)
+		if err2 := logF.Close(); err == nil {
+			err = err2
+		}
+	}()
+	log.SetOutput(logF)
+	err = fn()
+	return
+}
+
 func main() {
 	var (
 		sceneFile = flag.String("scene", "scene.x3d.gz", "X3D scene to load")
@@ -53,36 +83,14 @@ func main() {
 	scene, err := loadScene(*sceneFile)
 	check(err)
 
-	wrap := func(fn func()) func() { return fn }
-
-	if *logFile != "" {
-		logF, err := os.OpenFile(
-			*logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY,
-			0666)
-		check(err)
-		old := log.Writer()
-		log.SetOutput(logF)
-		wrap = func(fn func()) func() {
-			return func() {
-				defer func() {
-					log.SetOutput(old)
-					logF.Close()
-				}()
-				fn()
-			}
-		}
-	}
-
-	run := wrap(func() {
-		err = gfx.WrapScreen(func(screen tcell.Screen) error {
+	run := func() error {
+		return gfx.WrapScreen(func(screen tcell.Screen) error {
 			return gfx.WrapWindow(func(window *sdl.Window) error {
 				directory := filepath.Dir(*sceneFile)
 				return startClient(scene, directory, screen, window)
 			})
 		})
-	})
+	}
 
-	sdl.Main(run)
-
-	check(err)
+	check(logWrap(*logFile, run))
 }

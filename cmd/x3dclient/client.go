@@ -41,19 +41,17 @@ func startClient(
 
 func (c *client) setupOpenGL() error {
 	var err error
-	sdl.Do(func() {
-		if c.context, err = c.window.GLCreateContext(); err != nil {
-			return
-		}
-		if err = gl.Init(); err != nil {
-			sdl.GLDeleteContext(c.context)
-		}
-	})
+	if c.context, err = c.window.GLCreateContext(); err != nil {
+		return err
+	}
+	if err = gl.Init(); err != nil {
+		sdl.GLDeleteContext(c.context)
+	}
 	return err
 }
 
 func (c *client) tearDownOpenGL() {
-	sdl.Do(func() { sdl.GLDeleteContext(c.context) })
+	sdl.GLDeleteContext(c.context)
 }
 
 func (c *client) run() error {
@@ -72,6 +70,7 @@ func (c *client) run() error {
 		// TODO: Implement me!
 		_ = cs
 	}
+
 	log.Printf("Number of textures: %d\n", tc.NumTextures())
 	return nil
 }
