@@ -44,19 +44,45 @@ func check(err error) {
 }
 
 func main() {
-	sceneFile := flag.String("scene", "scene.x3d.gz", "X3D scene to load")
+	var (
+		sceneFile = flag.String("scene", "scene.x3d.gz", "X3D scene to load")
+		logFile   = flag.String("log", "", "Log file")
+	)
 	flag.Parse()
 
 	scene, err := loadScene(*sceneFile)
 	check(err)
-	directory := filepath.Dir(*sceneFile)
 
-	sdl.Main(func() {
+	wrap := func(fn func()) func() { return fn }
+
+	if *logFile != "" {
+		logF, err := os.OpenFile(
+			*logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY,
+			0666)
+		check(err)
+		old := log.Writer()
+		log.SetOutput(logF)
+		wrap = func(fn func()) func() {
+			return func() {
+				defer func() {
+					log.SetOutput(old)
+					logF.Close()
+				}()
+				fn()
+			}
+		}
+	}
+
+	run := wrap(func() {
 		err = gfx.WrapScreen(func(screen tcell.Screen) error {
 			return gfx.WrapWindow(func(window *sdl.Window) error {
+				directory := filepath.Dir(*sceneFile)
 				return startClient(scene, directory, screen, window)
 			})
 		})
 	})
+
+	sdl.Main(run)
+
 	check(err)
 }
