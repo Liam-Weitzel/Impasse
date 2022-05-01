@@ -21,7 +21,7 @@ const framesPerSecond = 10
 
 const (
 	renderWidth  = 640
-	renderHeight = 480
+	renderHeight = 400
 )
 
 //go:embed texture.vert
@@ -99,7 +99,9 @@ type client struct {
 
 	geoms bool
 
-	window    *sdl.Window
+	window  *sdl.Window
+	context sdl.GLContext
+
 	glVersion string
 
 	cleanup func(*client)
@@ -138,6 +140,14 @@ func (c *client) setupOpenGL() error {
 }
 
 func (c *client) setupOGL() error {
+	var err error
+	if c.context, err = c.window.GLCreateContext(); err != nil {
+		return err
+	}
+	c.chainCleanUp(func(c *client) { sdl.GLDeleteContext(c.context) })
+	if err := gl.Init(); err != nil {
+		return err
+	}
 
 	//var fbo uint32
 	gl.GenFramebuffers(1, &c.fbo)
@@ -171,7 +181,6 @@ func (c *client) setupOGL() error {
 	}
 
 	var prog uint32
-	var err error
 	//log.Println(vertexSrc)
 	prog, err = loadShaderProg(vertexSrc, fragSrc)
 	if err != nil {
@@ -327,6 +336,7 @@ func genIndices(vertices []vertex) []uint16 {
 }
 
 func (c *client) renderOpenGL() {
+	//c.window.GLMakeCurrent(c.context)
 	currentTime := time.Now()
 	elapsed := float32(currentTime.Sub(c.prevTime).Seconds())
 	c.prevTime = currentTime
