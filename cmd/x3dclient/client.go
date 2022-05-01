@@ -3,6 +3,9 @@ package main
 import (
 	"log"
 
+	"github.com/gdamore/tcell/v2"
+	gl "github.com/go-gl/gl/v3.0/gles2"
+	"github.com/veandco/go-sdl2/sdl"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d/opengl"
 )
@@ -10,13 +13,47 @@ import (
 type client struct {
 	scene     *x3d.Scene
 	directory string
+
+	window  *sdl.Window
+	context sdl.GLContext
+
+	screen tcell.Screen
 }
 
-func newClient(scene *x3d.Scene, directory string) (*client, error) {
-	return &client{
+func startClient(
+	scene *x3d.Scene, directory string,
+	screen tcell.Screen, window *sdl.Window,
+) error {
+	c := &client{
 		scene:     scene,
 		directory: directory,
-	}, nil
+		window:    window,
+		screen:    screen,
+	}
+
+	if err := c.setupOpenGL(); err != nil {
+		return err
+	}
+	defer c.tearDownOpenGL()
+
+	return c.run()
+}
+
+func (c *client) setupOpenGL() error {
+	var err error
+	sdl.Do(func() {
+		if c.context, err = c.window.GLCreateContext(); err != nil {
+			return
+		}
+		if err = gl.Init(); err != nil {
+			sdl.GLDeleteContext(c.context)
+		}
+	})
+	return err
+}
+
+func (c *client) tearDownOpenGL() {
+	sdl.Do(func() { sdl.GLDeleteContext(c.context) })
 }
 
 func (c *client) run() error {

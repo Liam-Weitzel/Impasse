@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gdamore/tcell/v2"
+	"github.com/veandco/go-sdl2/sdl"
+	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
 )
 
@@ -48,9 +51,12 @@ func main() {
 	check(err)
 	directory := filepath.Dir(*sceneFile)
 
-	var client *client
-	client, err = newClient(scene, directory)
+	sdl.Main(func() {
+		err = gfx.WrapScreen(func(screen tcell.Screen) error {
+			return gfx.WrapWindow(func(window *sdl.Window) error {
+				return startClient(scene, directory, screen, window)
+			})
+		})
+	})
 	check(err)
-
-	check(client.run())
 }
