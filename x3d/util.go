@@ -135,6 +135,43 @@ func findAttr(name string, attrs []xml.Attr) (string, bool) {
 	return "", false
 }
 
+type attrParser struct {
+	name    string
+	handler func(string) error
+}
+
+func parseAttrs(attrs []xml.Attr, parsers []attrParser) error {
+	for i := range attrs {
+		name := attrs[i].Name.Local
+		for _, p := range parsers {
+			if p.name == name {
+				if err := p.handler(attrs[i].Value); err != nil {
+					return fmt.Errorf(name+": %v", err)
+				}
+				break
+			}
+		}
+	}
+	return nil
+
+}
+
+func intsParser(p *[]int32) func(string) error {
+	return func(v string) error {
+		var err error
+		*p, err = parseInt32s(v)
+		return err
+	}
+}
+
+func boolParser(p *bool) func(string) error {
+	return func(v string) error {
+		var err error
+		*p, err = strconv.ParseBool(v)
+		return err
+	}
+}
+
 func parseInt32s(s string) ([]int32, error) {
 	fields := strings.Fields(s)
 	ints := make([]int32, 0, len(fields))

@@ -31,13 +31,13 @@ type parseContext struct {
 
 var noEndHandler = funcElementEnder(nil)
 
-type viewpoint struct {
-	Description string `xml:"description,attr"`
-	Orientation string `xml:"orientation,attr"`
-	Position    string `xml:"position,attr"`
-}
-
 func (pc *parseContext) viewpointHandler(se xml.StartElement) (elementEnder, error) {
+
+	type viewpoint struct {
+		Description string `xml:"description,attr"`
+		Orientation string `xml:"orientation,attr"`
+		Position    string `xml:"position,attr"`
+	}
 
 	var vp viewpoint
 
@@ -220,30 +220,39 @@ type indexedFaceSetHandler struct{ IndexedFaceSet }
 
 func (pc *parseContext) handleIndexedFaceSet(se xml.StartElement) (elementEnder, error) {
 
-	coordIndex, ok := findAttr("coordIndex", se.Attr)
-	if !ok {
+	var (
+		coordIndices    []int32
+		texCoordIndices []int32
+		ccw             bool = true
+		normalPerVertex bool = true
+		convex          bool = true
+	)
+
+	if err := parseAttrs(se.Attr, []attrParser{
+		{"coordIndex", intsParser(&coordIndices)},
+		{"texCoordIndex", intsParser(&texCoordIndices)},
+		{"ccw", boolParser(&ccw)},
+		{"normalPerVertex", boolParser(&normalPerVertex)},
+		{"convex", boolParser(&convex)},
+	}); err != nil {
+		return nil, err
+	}
+
+	if len(coordIndices) == 0 {
 		return nil, errors.New("IndexedFaceSet has no attribute 'coordIndex'")
 	}
 
-	coordIndices, err := parseInt32s(coordIndex)
-	if err != nil {
-		return nil, fmt.Errorf("coordIndex: %v", err)
-	}
-
-	texCoordIndex, ok := findAttr("texCoordIndex", se.Attr)
-	if !ok {
+	if len(texCoordIndices) == 0 {
 		return nil, errors.New("IndexedFaceSet has no attribute 'texCoordIndex'")
-	}
-
-	texCoordIndices, err := parseInt32s(texCoordIndex)
-	if err != nil {
-		return nil, fmt.Errorf("texCoordIndex: %v", err)
 	}
 
 	return &indexedFaceSetHandler{
 		IndexedFaceSet{
 			CoordIndices:    coordIndices,
 			TexCoordIndices: texCoordIndices,
+			CCW:             ccw,
+			NormalPerVertex: normalPerVertex,
+			Convex:          convex,
 		},
 	}, nil
 }
