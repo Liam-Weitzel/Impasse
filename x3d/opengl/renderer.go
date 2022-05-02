@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	gl "github.com/go-gl/gl/v3.0/gles2"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 type State struct {
@@ -14,6 +15,51 @@ type State struct {
 	lightPosLoc          int32
 	ambientColLoc        int32
 	diffuseColLoc        int32
+}
+
+type Renderer struct {
+	state      *State
+	program    uint32
+	ambientCol mgl32.Vec3
+	projMat    mgl32.Mat4
+}
+
+func NewRenderer(program uint32, ambientCol mgl32.Vec3, projMat mgl32.Mat4) (*Renderer, error) {
+
+	s := &State{}
+
+	if err := s.ExtractUniforms(program); err != nil {
+		return nil, err
+	}
+
+	return &Renderer{
+		state:      s,
+		program:    program,
+		ambientCol: ambientCol,
+		projMat:    projMat,
+	}, nil
+}
+
+func (r *Renderer) Render(c *Camera, css []*CompiledShape) {
+
+	viewMat := mgl32.Translate3D(
+		c.Position[0], c.Position[1], c.Position[2])
+
+	mvMat := viewMat
+	normalMat := mvMat.Inv().Transpose()
+
+	gl.UseProgram(r.program)
+
+	gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
+	gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
+	gl.UniformMatrix4fv(r.state.projMatLoc, 1, false, &r.projMat[0])
+
+	// Head light
+	gl.Uniform3fv(r.state.lightPosLoc, 1, &c.Position[0])
+
+	for _, cs := range css {
+		cs.Render(r.state)
+	}
 }
 
 func (s *State) ExtractUniforms(program uint32) error {

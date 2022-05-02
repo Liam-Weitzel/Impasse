@@ -3,6 +3,7 @@ package opengl
 import (
 	"errors"
 	"math"
+	"unsafe"
 
 	gl "github.com/go-gl/gl/v3.0/gles2"
 	"github.com/go-gl/mathgl/mgl32"
@@ -14,6 +15,7 @@ type CompiledShape struct {
 	vbo          uint32
 	ibo          uint32
 	diffuseColor mgl32.Vec3
+	nIndices     int32
 }
 
 type ShapeCompiler struct {
@@ -132,6 +134,7 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 		vbo:          vbo,
 		ibo:          ibo,
 		diffuseColor: s.Appearance.DiffuseColor,
+		nIndices:     int32(len(indices)),
 	}
 
 	return cs, nil
@@ -155,4 +158,17 @@ func fixTexCoord(uv *mgl32.Vec2, t *Texture) {
 	}
 	uv[0] /= float32(t.Width)
 	uv[1] /= float32(t.Height)
+}
+
+func (cs *CompiledShape) Render(s *State) {
+
+	gl.BindTexture(gl.TEXTURE_2D, cs.texture)
+	gl.BindBuffer(gl.ARRAY_BUFFER, cs.vbo)
+	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, cs.ibo)
+
+	// Bind the uniforms
+	//gl.Uniform1i(s.texSamplerUniformLoc, 0)
+	gl.Uniform3fv(s.diffuseColLoc, 1, &cs.diffuseColor[0])
+
+	gl.DrawElements(gl.TRIANGLE_FAN, cs.nIndices, gl.UNSIGNED_SHORT, unsafe.Pointer(nil))
 }
