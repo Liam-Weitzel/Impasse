@@ -206,6 +206,16 @@ func (pc *parseContext) sendTextureCoordinateToIndexedFaceSet(uvs []mgl32.Vec2) 
 	})
 }
 
+func (pc *parseContext) sendNormalToIndexedFaceSet(vs []mgl32.Vec3) bool {
+	return pc.sendTo(func(h elementEnder) bool {
+		ifsh, ok := h.(*indexedFaceSetHandler)
+		if ok {
+			ifsh.IndexedFaceSet.Normals = vs
+		}
+		return ok
+	})
+}
+
 func (ah *appearanceHandler) endElement(pc *parseContext, se xml.EndElement) error {
 	if ah.Texture == nil {
 		return errors.New("Appearance has no Texture")
@@ -223,6 +233,7 @@ func (pc *parseContext) handleIndexedFaceSet(se xml.StartElement) (elementEnder,
 	var (
 		coordIndices    []int32
 		texCoordIndices []int32
+		normalIndices   []int32
 		ccw             bool = true
 		normalPerVertex bool = true
 		convex          bool = true
@@ -231,6 +242,7 @@ func (pc *parseContext) handleIndexedFaceSet(se xml.StartElement) (elementEnder,
 	if err := parseAttrs(se.Attr, []attrParser{
 		{"coordIndex", intsParser(&coordIndices)},
 		{"texCoordIndex", intsParser(&texCoordIndices)},
+		{"normalIndex", intsParser(&normalIndices)},
 		{"ccw", boolParser(&ccw)},
 		{"normalPerVertex", boolParser(&normalPerVertex)},
 		{"convex", boolParser(&convex)},
@@ -241,15 +253,18 @@ func (pc *parseContext) handleIndexedFaceSet(se xml.StartElement) (elementEnder,
 	if len(coordIndices) == 0 {
 		return nil, errors.New("IndexedFaceSet has no attribute 'coordIndex'")
 	}
-
 	if len(texCoordIndices) == 0 {
 		return nil, errors.New("IndexedFaceSet has no attribute 'texCoordIndex'")
+	}
+	if len(normalIndices) == 0 {
+		return nil, errors.New("IndexedFaceSet has no attribute 'normalIndex'")
 	}
 
 	return &indexedFaceSetHandler{
 		IndexedFaceSet{
 			CoordIndices:    coordIndices,
 			TexCoordIndices: texCoordIndices,
+			NormalIndices:   normalIndices,
 			CCW:             ccw,
 			NormalPerVertex: normalPerVertex,
 			Convex:          convex,
@@ -284,6 +299,9 @@ func (ifsh *indexedFaceSetHandler) endElement(pc *parseContext, se xml.EndElemen
 	}
 	if len(ifs.TexCoordIndices) == 0 {
 		return errors.New("IndexedFaceSet has no TexCoordIndices")
+	}
+	if len(ifs.Normals) == 0 {
+		return errors.New("IndexedFaceSet has no Normals")
 	}
 
 	// check tex coord indices
@@ -337,6 +355,23 @@ func (pc *parseContext) handleTextureCoordinate(se xml.StartElement) (elementEnd
 	return noEndHandler, nil
 }
 
+func (pc *parseContext) handleNormal(se xml.StartElement) (elementEnder, error) {
+	vector, ok := findAttr("vector", se.Attr)
+	if !ok {
+		return nil, errors.New("missing 'vector' attribute in Normal")
+	}
+
+	vs, err := parseVector3s(vector)
+	if err != nil {
+		return nil, fmt.Errorf("Normal: %v", err)
+	}
+
+	if !pc.sendNormalToIndexedFaceSet(vs) {
+		return nil, errors.New("Normal not in IndexedFaceSet")
+	}
+	return noEndHandler, nil
+}
+
 func (pc *parseContext) handleMaterial(se xml.StartElement) (elementEnder, error) {
 	if v, ok := findAttr("diffuseColor", se.Attr); ok {
 		dc, err := parseVector3(v)
@@ -359,6 +394,7 @@ var startElements = map[string]func(
 	"IndexedFaceSet":    (*parseContext).handleIndexedFaceSet,
 	"Coordinate":        (*parseContext).handleCoordinate,
 	"TextureCoordinate": (*parseContext).handleTextureCoordinate,
+	"Normal":            (*parseContext).handleNormal,
 	"Material":          (*parseContext).handleMaterial,
 }
 

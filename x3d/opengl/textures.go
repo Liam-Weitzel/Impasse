@@ -70,7 +70,7 @@ func loadRGBAFromFile(fname string) (*image.RGBA, error) {
 
 	rgba := image.NewRGBA(img.Bounds())
 	draw.Draw(rgba, img.Bounds(), img, image.ZP, draw.Src)
-	return nil, err
+	return rgba, err
 }
 
 func (tc *TextureCache) NumTextures() int {

@@ -1,9 +1,66 @@
 package opengl
 
-import "github.com/go-gl/mathgl/mgl32"
+import (
+	"fmt"
+	"unsafe"
+
+	gl "github.com/go-gl/gl/v3.0/gles2"
+	"github.com/go-gl/mathgl/mgl32"
+)
 
 type Vertex struct {
-	coords  mgl32.Vec3
-	tex     mgl32.Vec2
-	normals mgl32.Vec3
+	coord    mgl32.Vec3
+	texCoord mgl32.Vec2
+	normal   mgl32.Vec3
+}
+
+const vertexSize = unsafe.Sizeof(Vertex{})
+
+func createVBO(vertices []Vertex) (uint32, error) {
+
+	var vbo uint32
+
+	const nBuffers = 1
+
+	gl.GenBuffers(nBuffers, &vbo)
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
+
+	gl.BufferData(
+		gl.ARRAY_BUFFER,
+		int(vertexSize)*len(vertices), gl.Ptr(vertices),
+		gl.STATIC_DRAW)
+
+	errNo := gl.GetError()
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+
+	if errNo != gl.NO_ERROR {
+		gl.DeleteBuffers(nBuffers, &vbo)
+		return 0, fmt.Errorf("creating VBO failed: %d", errNo)
+	}
+
+	return vbo, nil
+}
+
+func createIBO(indices []uint16) (uint32, error) {
+	var ibo uint32
+
+	const nBuffers = 1
+
+	const sizeUint16 = int(unsafe.Sizeof(uint16(0)))
+
+	gl.GenBuffers(nBuffers, &ibo)
+	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo)
+	gl.BufferData(
+		gl.ELEMENT_ARRAY_BUFFER,
+		sizeUint16*len(indices),
+		gl.Ptr(indices), gl.STATIC_DRAW)
+
+	if errNo := gl.GetError(); errNo != gl.NO_ERROR {
+		gl.DeleteBuffers(nBuffers, &ibo)
+		return 0, fmt.Errorf("creating IBO failed: %d", errNo)
+	}
+
+	return ibo, nil
 }

@@ -26,6 +26,8 @@ type IndexedFaceSet struct {
 	CoordIndices       []int32
 	TextureCoordinates []mgl32.Vec2
 	TexCoordIndices    []int32
+	Normals            []mgl32.Vec3
+	NormalIndices      []int32
 	CCW                bool
 	NormalPerVertex    bool
 	Convex             bool
