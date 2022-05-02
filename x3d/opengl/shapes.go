@@ -118,6 +118,8 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 		return nil, err
 	}
 
+	layoutVBO(vbo)
+
 	ibo, err := createIBO(indices)
 	if err != nil {
 		t.Free()
