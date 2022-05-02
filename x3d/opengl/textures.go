@@ -1,9 +1,12 @@
 package opengl
 
 import (
+	"fmt"
 	"image"
 	"os"
 	"path/filepath"
+
+	gl "github.com/go-gl/gl/v3.0/gles2"
 
 	"image/draw"
 	_ "image/jpeg"
@@ -11,11 +14,15 @@ import (
 )
 
 type Texture struct {
-	refCount int
+	refCount int32
+	Width    int32
+	Height   int32
+	Texture  uint32
 }
 
 func (t *Texture) free() {
-	// TODO: Implement me!
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+	gl.DeleteBuffers(1, &t.Texture)
 }
 
 func (t *Texture) Free() {
@@ -82,10 +89,17 @@ func (tc *TextureCache) GetTexture(name string) (*Texture, error) {
 			return nil, err
 		}
 
-		// TODO: Implement me!
-		_ = rgba
+		texture, err := makeTexture(rgba)
+		if err != nil {
+			return nil, err
+		}
 
-		t = &Texture{refCount: 1}
+		t = &Texture{
+			refCount: 1,
+			Texture:  texture,
+			Width:    int32(rgba.Bounds().Dx()),
+			Height:   int32(rgba.Bounds().Dy()),
+		}
 
 		tc.textures[name] = t
 	} else {
@@ -102,4 +116,26 @@ func (tc *TextureCache) Delete() {
 	for _, t := range ts {
 		t.Delete()
 	}
+}
+
+func makeTexture(img *image.RGBA) (uint32, error) {
+	var texture uint32
+	gl.GenTextures(1, &texture)
+	gl.BindTexture(gl.TEXTURE_2D, texture)
+
+	width, height := int32(img.Bounds().Dx()), int32(img.Bounds().Dy())
+
+	gl.TexImage2D(
+		gl.TEXTURE_2D, 0,
+		gl.RGBA,
+		width, height,
+		0, gl.RGBA, gl.UNSIGNED_BYTE,
+		gl.Ptr(img.Pix))
+
+	if errNo := gl.GetError(); errNo != gl.NO_ERROR {
+		gl.DeleteBuffers(1, &texture)
+		return 0, fmt.Errorf("creating texture failed: %d", errNo)
+	}
+
+	return texture, nil
 }
