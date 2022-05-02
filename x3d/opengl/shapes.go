@@ -2,7 +2,6 @@ package opengl
 
 import (
 	"errors"
-	"log"
 	"math"
 
 	gl "github.com/go-gl/gl/v3.0/gles2"
@@ -71,10 +70,6 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 		send()
 	}
 
-	log.Println("New geometry:")
-
-	//gl.MultiDrawArrays
-
 	var (
 		vertices []Vertex
 		indices  []uint16
@@ -110,6 +105,13 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 		}
 	})
 
+	// fix texCoords
+	if needFixing(ifs.TextureCoordinates) {
+		for i := range vertices {
+			fixTexCoord(&vertices[i].texCoord, t)
+		}
+	}
+
 	vbo, err := createVBO(vertices)
 	if err != nil {
 		t.Free()
@@ -131,4 +133,24 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 	}
 
 	return cs, nil
+}
+
+func needFixing(uvs []mgl32.Vec2) bool {
+	for _, uv := range uvs {
+		if uv[0] < 0 || uv[0] > 1 || uv[1] < 0 || uv[1] > 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func fixTexCoord(uv *mgl32.Vec2, t *Texture) {
+	for uv[0] < 0 {
+		uv[0] += float32(t.Width)
+	}
+	for uv[1] < 0 {
+		uv[1] += float32(t.Height)
+	}
+	uv[0] /= float32(t.Width)
+	uv[1] /= float32(t.Height)
 }
