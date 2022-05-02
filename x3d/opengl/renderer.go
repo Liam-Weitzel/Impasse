@@ -5,7 +5,15 @@ import (
 
 	gl "github.com/go-gl/gl/v3.0/gles2"
 	"github.com/go-gl/mathgl/mgl32"
+
+	_ "embed"
 )
+
+//go:embed texture.vert
+var vertexSrc string
+
+//go:embed texture.frag
+var fragSrc string
 
 type State struct {
 	texSamplerUniformLoc int32
@@ -24,11 +32,17 @@ type Renderer struct {
 	projMat    mgl32.Mat4
 }
 
-func NewRenderer(program uint32, ambientCol mgl32.Vec3, projMat mgl32.Mat4) (*Renderer, error) {
+func NewRenderer(ambientCol mgl32.Vec3, projMat mgl32.Mat4) (*Renderer, error) {
+
+	program, err := CreateProgram(vertexSrc, fragSrc)
+	if err != nil {
+		return nil, err
+	}
 
 	s := &State{}
 
 	if err := s.ExtractUniforms(program); err != nil {
+		gl.DeleteProgram(program)
 		return nil, err
 	}
 
@@ -40,10 +54,16 @@ func NewRenderer(program uint32, ambientCol mgl32.Vec3, projMat mgl32.Mat4) (*Re
 	}, nil
 }
 
+func (r *Renderer) Delete() {
+	gl.DeleteProgram(r.program)
+}
+
 func (r *Renderer) Render(c *Camera, css []*CompiledShape) {
 
-	viewMat := mgl32.Translate3D(
-		c.Position[0], c.Position[1], c.Position[2])
+	front := mgl32.Vec3{0, 0, -1}
+	up := mgl32.Vec3{0, 1, 0}
+
+	viewMat := mgl32.LookAtV(c.Position, c.Position.Add(front), up)
 
 	mvMat := viewMat
 	normalMat := mvMat.Inv().Transpose()
@@ -56,6 +76,8 @@ func (r *Renderer) Render(c *Camera, css []*CompiledShape) {
 
 	// Head light
 	gl.Uniform3fv(r.state.lightPosLoc, 1, &c.Position[0])
+
+	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 	for _, cs := range css {
 		cs.Render(r.state)
