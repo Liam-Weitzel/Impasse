@@ -52,9 +52,6 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 		var indices []int32
 		send := func() {
 			if l := len(indices); l > 0 {
-				if ifs.CoordIndices[indices[0]] == ifs.CoordIndices[l-1] {
-					indices = indices[:l-1]
-				}
 				if !ifs.CCW {
 					reverse(indices)
 				}
