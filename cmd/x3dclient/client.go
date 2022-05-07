@@ -19,7 +19,7 @@ import (
 const (
 	displayWidth  = 640
 	displayHeight = 400
-	fov           = 60
+	fov           = 70
 	near          = 1
 	far           = 1500
 )

@@ -7,6 +7,7 @@ layout(location = 2) in vec3 vertNormal;
 out vec2 texCoord;
 out vec3 normal;
 out vec3 lightVec;
+out float fogDepth;
 
 uniform mat4 mvMat;
 uniform mat4 normalMat;
@@ -17,8 +18,10 @@ void main() {
     // pass on the texture coordinate
    texCoord = vertTexCoord;
 
+   vec4 vp = vec4(vertPos, 1.0);
+
     // position in view space
-    vec4 viewPos = mvMat * vec4(vertPos, 1.0);
+    vec4 viewPos = mvMat * vp;
 
     // position
     gl_Position = projMat * viewPos;
@@ -26,4 +29,6 @@ void main() {
     normal = normalize((normalMat * vec4(vertNormal, 1.0)).xyz);
 
     lightVec = lightPos - viewPos.xyz;
+
+    fogDepth = -(mvMat * vp).z;
 }

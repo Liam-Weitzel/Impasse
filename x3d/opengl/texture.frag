@@ -7,6 +7,7 @@ precision highp float;
 in vec2 texCoord;
 in vec3 normal;
 in vec3 lightVec;
+in float fogDepth;
 
 out vec4 fragColor;
 
@@ -16,10 +17,11 @@ uniform vec3 ambientCol; // The light and object's combined ambient color
 uniform vec3 diffuseCol;  // The light and object's combined diffuse color
 
 const float invRadiusSq = 0.00001;
+const float fogNear = 0.0;
+const float fogFar = 1500.0;
+const vec4 fogColor = vec4(0.0, 0.0, 0.0, 1.0);
 
 void main() {
-    //fragColor = vec4(1.0);
-    //fragColor =texture(texSampler, texCoord); 
     // base color from diffuse texture
     vec4 col = texture(texSampler, texCoord);
 
@@ -37,5 +39,9 @@ void main() {
 
     vec3 finalCol = (ambient + diffuse)*attenuation;
 
-    fragColor = vec4(finalCol, col.w);
+    vec4 shaded = vec4(finalCol, col.w);
+
+    float fogAmount = smoothstep(fogNear, fogFar, fogDepth);
+
+    fragColor = mix(shaded, fogColor, fogAmount);
 }
