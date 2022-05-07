@@ -15,7 +15,7 @@ uniform vec3 lightPos; // position in view space
 
 void main() {
     // pass on the texture coordinate
-    texCoord = vertTexCoord;
+   texCoord = vertTexCoord;
 
     // position in view space
     vec4 viewPos = mvMat * vec4(vertPos, 1.0);

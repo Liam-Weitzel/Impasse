@@ -21,7 +21,7 @@ const (
 	displayHeight = 400
 	fov           = 60
 	near          = 1
-	far           = 1000
+	far           = 1500
 )
 
 type client struct {
@@ -74,7 +74,16 @@ func (c *client) run() error {
 		return errors.New("no viewpoints defined")
 	}
 
-	ambientCol := mgl32.Vec3{0.15, 0.15, 0.15}
+	fbo, fboFree, err := opengl.CreateFrameBuffer(displayWidth, displayHeight)
+	if err != nil {
+		return err
+	}
+	defer fboFree()
+	gl.BindFramebuffer(gl.FRAMEBUFFER, fbo)
+
+	//ambientCol := mgl32.Vec3{0.15, 0.15, 0.15}
+	ambientCol := mgl32.Vec3{0.75, 0.75, 0.75}
+	//ambientCol := mgl32.Vec3{1.5, 1.5, 1.5}
 
 	projMat := mgl32.Perspective(
 		mgl32.DegToRad(fov),
@@ -94,16 +103,23 @@ func (c *client) run() error {
 
 	sc := opengl.NewShapeCompiler(tc)
 
-	css := make([]*opengl.CompiledShape, len(c.scene.Shapes))
+	css := make([]*opengl.CompiledShape, 0, len(c.scene.Shapes))
 
-	for i, s := range c.scene.Shapes {
+	//for _, s := range c.scene.Shapes[:2] {
+	for _, s := range c.scene.Shapes {
 		cs, err := sc.Compile(s)
 		if err != nil {
 			return err
 		}
-		css[i] = cs
+		css = append(css, cs)
 	}
 
+	//gl.Viewport(0, 0, displayWidth, displayHeight)
+
+	//gl.Disable(gl.CULL_FACE)
+	gl.Enable(gl.CULL_FACE)
+	gl.FrontFace(gl.CW)
+	//gl.CullFace(gl.BACK)
 	gl.Enable(gl.PRIMITIVE_RESTART_FIXED_INDEX)
 	gl.Enable(gl.DEPTH_TEST)
 	gl.DepthFunc(gl.LESS)
@@ -112,8 +128,10 @@ func (c *client) run() error {
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.ActiveTexture(gl.TEXTURE0)
 
-	gl.ClearColor(0, 1, 0, 1)
-	gl.ClearDepthf(1)
+	gl.ClearColor(0, 0.5, 1, 1)
+	//gl.ClearDepthf(math.MaxFloat32)
+
+	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 	camera := &opengl.Camera{
 		Position: c.scene.Viewpoints[0].Position,
@@ -138,5 +156,6 @@ func (c *client) run() error {
 	}
 
 	log.Printf("Number of textures: %d\n", tc.NumTextures())
+	log.Printf("FBO: %d\n", fbo)
 	return nil
 }

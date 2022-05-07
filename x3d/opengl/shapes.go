@@ -2,6 +2,7 @@ package opengl
 
 import (
 	"errors"
+	"log"
 	"math"
 	"unsafe"
 
@@ -16,6 +17,7 @@ type CompiledShape struct {
 	ibo          uint32
 	diffuseColor mgl32.Vec3
 	nIndices     int32
+	vertices     []Vertex
 }
 
 type ShapeCompiler struct {
@@ -52,9 +54,11 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 		var indices []int32
 		send := func() {
 			if l := len(indices); l > 0 {
-				if !ifs.CCW {
-					reverse(indices)
-				}
+				/*
+					if !ifs.CCW {
+						reverse(indices)
+					}
+				*/
 				fn(indices)
 				indices = indices[:0]
 			}
@@ -84,6 +88,7 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 		for _, id := range ids {
 			var v Vertex
 			v.coord = ifs.Coordinates[ifs.CoordIndices[id%int32(len(ifs.CoordIndices))]]
+			log.Printf("%v\n", v.coord)
 
 			// TODO: Normalize to texture dimensions.
 			v.texCoord = ifs.TextureCoordinates[ifs.TexCoordIndices[id%int32(len(ifs.TexCoordIndices))]]
@@ -107,24 +112,28 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 	// fix texCoords
 	if needFixing(ifs.TextureCoordinates) {
 		for i := range vertices {
-			fixTexCoord(&vertices[i].texCoord, t)
+			log.Printf("tex before: %v\n", vertices[i].texCoord)
+			//fixTexCoord(&vertices[i].texCoord, t)
+			log.Printf("tex after: %v\n", vertices[i].texCoord)
 		}
 	}
 
+	ibo, err := createIBO(indices)
+	if err != nil {
+		t.Free()
+		return nil, err
+	}
+
+	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo)
+
 	vbo, err := createVBO(vertices)
 	if err != nil {
+		gl.DeleteBuffers(1, &ibo)
 		t.Free()
 		return nil, err
 	}
 
 	layoutVBO(vbo)
-
-	ibo, err := createIBO(indices)
-	if err != nil {
-		t.Free()
-		gl.DeleteBuffers(1, &vbo)
-		return nil, err
-	}
 
 	cs := &CompiledShape{
 		texture:      t.Texture,
@@ -132,6 +141,7 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 		ibo:          ibo,
 		diffuseColor: s.Appearance.DiffuseColor,
 		nIndices:     int32(len(indices)),
+		vertices:     vertices,
 	}
 
 	return cs, nil
@@ -159,13 +169,14 @@ func fixTexCoord(uv *mgl32.Vec2, t *Texture) {
 
 func (cs *CompiledShape) Render(s *State) {
 
-	gl.BindTexture(gl.TEXTURE_2D, cs.texture)
-	gl.BindBuffer(gl.ARRAY_BUFFER, cs.vbo)
-	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, cs.ibo)
+	//gl.BindTexture(gl.TEXTURE_2D, cs.texture)
+	//gl.BindBuffer(gl.VERTEX_ARRAY, cs.vbo)
+	//log.Printf("vbo: %d\n", cs.vbo)
+	//gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, cs.ibo)
 
 	// Bind the uniforms
 	//gl.Uniform1i(s.texSamplerUniformLoc, 0)
-	gl.Uniform3fv(s.diffuseColLoc, 1, &cs.diffuseColor[0])
+	//gl.Uniform3fv(s.diffuseColLoc, 1, &cs.diffuseColor[0])
 
 	gl.DrawElements(gl.TRIANGLE_FAN, cs.nIndices, gl.UNSIGNED_SHORT, unsafe.Pointer(nil))
 }

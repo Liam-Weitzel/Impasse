@@ -21,7 +21,7 @@ type Texture struct {
 }
 
 func (t *Texture) free() {
-	gl.BindTexture(gl.TEXTURE_2D, 0)
+	//gl.BindTexture(gl.TEXTURE_2D, 0)
 	gl.DeleteBuffers(1, &t.Texture)
 }
 

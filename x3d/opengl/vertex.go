@@ -21,41 +21,12 @@ const (
 	normalOfs   = unsafe.Offsetof(Vertex{}.normal)
 )
 
-func createVBO(vertices []Vertex) (uint32, error) {
-
-	var vbo uint32
-
-	const nBuffers = 1
-
-	gl.GenBuffers(nBuffers, &vbo)
-
-	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-
-	gl.BufferData(
-		gl.ARRAY_BUFFER,
-		int(vertexSize)*len(vertices), gl.Ptr(vertices),
-		gl.STATIC_DRAW)
-
-	errNo := gl.GetError()
-
-	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
-
-	if errNo != gl.NO_ERROR {
-		gl.DeleteBuffers(nBuffers, &vbo)
-		return 0, fmt.Errorf("creating VBO failed: %d", errNo)
-	}
-
-	return vbo, nil
-}
-
-func layoutVBO(vbo uint32) {
+func bindAttributes() {
 	const (
 		positionIdx = iota
 		texCoordIdx
 		normalIdx
 	)
-
-	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
 
 	gl.VertexAttribPointer(
 		positionIdx, 3, gl.FLOAT, false,
@@ -74,6 +45,41 @@ func layoutVBO(vbo uint32) {
 		int32(vertexSize),
 		gl.PtrOffset(int(normalOfs)))
 	gl.EnableVertexAttribArray(normalIdx)
+}
+
+func createVBO(vertices []Vertex) (uint32, error) {
+
+	var vbo uint32
+
+	const nBuffers = 1
+
+	gl.GenBuffers(nBuffers, &vbo)
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
+
+	bindAttributes()
+
+	gl.BufferData(
+		gl.ARRAY_BUFFER,
+		//int(vertexSize)*len(vertices), gl.Ptr(vertices),
+		int(vertexSize)*len(vertices), unsafe.Pointer(&vertices[0]),
+		gl.STATIC_DRAW)
+
+	//gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, 0)
+
+	errNo := gl.GetError()
+
+	//gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+
+	if errNo != gl.NO_ERROR {
+		gl.DeleteBuffers(nBuffers, &vbo)
+		return 0, fmt.Errorf("creating VBO failed: %d", errNo)
+	}
+
+	return vbo, nil
+}
+
+func layoutVBO(vbo uint32) {
 }
 
 func createIBO(indices []uint16) (uint32, error) {

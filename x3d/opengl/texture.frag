@@ -18,6 +18,8 @@ uniform vec3 diffuseCol;  // The light and object's combined diffuse color
 const float invRadiusSq = 0.00001;
 
 void main() {
+    //fragColor = vec4(1.0);
+    //fragColor =texture(texSampler, texCoord); 
     // base color from diffuse texture
     vec4 col = texture(texSampler, texCoord);
 
