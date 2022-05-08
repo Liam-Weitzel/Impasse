@@ -114,8 +114,13 @@ func (c *client) run() error {
 		css = append(css, cs)
 	}
 
+	p := c.scene.Viewpoints[0].Position
+	//p[0], p[2] = p[2], p[0]
+	p[1] = -p[1]
+
 	camera := &opengl.Camera{
-		Position: c.scene.Viewpoints[0].Position,
+		Position: p, // c.scene.Viewpoints[0].Position,
+		Angle:    mgl32.DegToRad(270),
 	}
 
 	out := image.NewRGBA(image.Rect(0, 0, displayWidth, displayHeight))
@@ -139,7 +144,13 @@ func (c *client) run() error {
 		rez.Convert(c.canvas, out, rez.NewBilinearFilter())
 
 		gfx.BlitRunes(c.screen, c.canvas, false)
+		c.screen.Show()
 	}
+
+	const (
+		stepWidth = 4
+		rotAngel  = 5
+	)
 
 	for {
 		render()
@@ -159,10 +170,29 @@ func (c *client) run() error {
 			case tcell.KeyRune:
 				switch ev.Rune() {
 				case 'w':
+					camera.Forward(stepWidth)
 				case 'a':
 				case 's':
+					camera.Backward(stepWidth)
 				case 'd':
+				case ' ':
+					camera.Up(stepWidth)
+				case 'c':
+					camera.Down(stepWidth)
 				}
+			case tcell.KeyUp:
+				camera.Forward(stepWidth)
+			case tcell.KeyDown:
+				camera.Backward(stepWidth)
+			case tcell.KeyLeft:
+				camera.RotateLeft(mgl32.DegToRad(rotAngel))
+			case tcell.KeyRight:
+				camera.RotateRight(mgl32.DegToRad(rotAngel))
+			case tcell.KeyPgUp:
+				camera.RotateUp(mgl32.DegToRad(rotAngel))
+			case tcell.KeyPgDn:
+				camera.RotateDown(mgl32.DegToRad(rotAngel))
+
 			}
 		}
 

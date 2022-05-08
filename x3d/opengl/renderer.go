@@ -3,8 +3,7 @@ package opengl
 import (
 	"fmt"
 	"image"
-	"log"
-	"time"
+	"math"
 	"unsafe"
 
 	gl "github.com/go-gl/gl/v3.0/gles2"
@@ -74,20 +73,32 @@ func (r *Renderer) Delete() {
 
 func (r *Renderer) Render(c *Camera, css []*CompiledShape, img *image.RGBA) {
 
-	start := time.Now()
-
 	//pos := mgl32.Vec3{(1280 + 1344) / 2, 520, (-264 + -280) / 2}
 	//center := mgl32.Vec3{(1280 + 1344) / 2, 576, (-264 + -280) / 2}
 	//up := mgl32.Vec3{0, 0, -1}
 
-	front := mgl32.Vec3{0, 1, 0}
+	front := mgl32.Vec3{
+		float32(math.Cos(float64(c.Angle))),
+		float32(math.Sin(float64(c.Angle))),
+		0}
+
 	up := mgl32.Vec3{0, 0, -1}
+
+	//up = mgl32.HomogRotate3D(c.UpAngle, mgl32.Vec3{0, 0, 1}).Mul4x1(up.Vec4(1)).Vec3()
+
+	flip := mgl32.Scale3D(1, -1, 1)
+
+	//log.Printf("pos: %v\n", c.Position)
 
 	viewMat := mgl32.LookAtV(c.Position, c.Position.Add(front), up)
 	//viewMat := mgl32.LookAtV(pos, center, up)
+	rot := mgl32.HomogRotate3D(c.UpAngle, mgl32.Vec3{1, 0, 0})
+	viewMat = rot.Mul4(viewMat)
 
-	mvMat := viewMat
+	mvMat := viewMat.Mul4(flip)
+	//mvMat := viewMat
 	normalMat := mvMat.Inv().Transpose()
+	//gl.Viewport(0, 0, int32(img.Bounds().Dx()), int32(img.Bounds().Dy()))
 
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 	gl.Enable(gl.CULL_FACE)
@@ -120,15 +131,14 @@ func (r *Renderer) Render(c *Camera, css []*CompiledShape, img *image.RGBA) {
 		gl.RGBA, gl.UNSIGNED_BYTE,
 		unsafe.Pointer(&img.Pix[0]))
 
-	log.Printf("Rendering took: %v\n", time.Since(start))
 }
 
 func (s *State) cullCCW(ccw bool) {
 	var value uint32
 	if ccw {
-		value = gl.CCW
-	} else {
 		value = gl.CW
+	} else {
+		value = gl.CCW
 	}
 	if value != s.lastCull {
 		s.lastCull = value
