@@ -40,6 +40,26 @@ func (c *Camera) Backward(width float32) {
 	c.Position = c.Position.Sub(delta)
 }
 
+func (c *Camera) StrafeLeft(width float32) {
+	angle := c.Angle - mgl32.DegToRad(90)
+	delta := mgl32.Vec3{
+		width * float32(math.Cos(float64(angle))),
+		width * float32(math.Sin(float64(angle))),
+		0,
+	}
+	c.Position = c.Position.Add(delta)
+}
+
+func (c *Camera) StrafeRight(width float32) {
+	angle := c.Angle + mgl32.DegToRad(90)
+	delta := mgl32.Vec3{
+		width * float32(math.Cos(float64(angle))),
+		width * float32(math.Sin(float64(angle))),
+		0,
+	}
+	c.Position = c.Position.Add(delta)
+}
+
 func (c *Camera) RotateLeft(angle float32) {
 	c.Angle -= angle
 	for ; c.Angle < 0; c.Angle += 2 * math.Pi {

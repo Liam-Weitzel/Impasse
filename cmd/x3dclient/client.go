@@ -204,9 +204,11 @@ func (c *client) run() error {
 				case 'w':
 					camera.Forward(stepWidth)
 				case 'a':
+					camera.StrafeLeft(stepWidth)
 				case 's':
 					camera.Backward(stepWidth)
 				case 'd':
+					camera.StrafeRight(stepWidth)
 				case ' ':
 					camera.Up(stepWidth)
 				case 'c':
