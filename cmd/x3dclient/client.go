@@ -2,8 +2,10 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"image"
 	"log"
+	"time"
 
 	"github.com/bamiaux/rez"
 	"github.com/gdamore/tcell/v2"
@@ -13,6 +15,7 @@ import (
 	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d/opengl"
+	//_ "github.com/gdamore/v2/terminfo/extended"
 )
 
 const (
@@ -33,6 +36,9 @@ type client struct {
 	screen tcell.Screen
 
 	canvas *image.RGBA
+
+	frameDuration time.Duration
+	termDuration  time.Duration
 }
 
 func startClient(
@@ -67,6 +73,24 @@ func (c *client) setupOpenGL() error {
 
 func (c *client) tearDownOpenGL() {
 	sdl.GLDeleteContext(c.context)
+}
+
+func (c *client) drawHUD() {
+	st := tcell.StyleDefault.
+		Background(tcell.ColorBlack).
+		Foreground(tcell.ColorYellow)
+
+	gfx.WriteString(c.screen, 0, 0,
+		"ESC: Quit|Cursor/WASD: Move|PgUp/PgD: Look up/down|SPACE/C: Up/Down",
+		st)
+
+	_, height := c.screen.Size()
+
+	gfx.WriteString(c.screen, 0, height-1,
+		fmt.Sprintf("Frame time: %.2fms [%.2fms]",
+			float64(c.frameDuration.Microseconds()/1000),
+			float64(c.termDuration.Microseconds())/1000), st)
+
 }
 
 func (c *client) run() error {
@@ -132,7 +156,9 @@ func (c *client) run() error {
 	go c.screen.ChannelEvents(events, done)
 
 	render := func() {
+		t0 := time.Now()
 		renderer.Render(camera, css, out)
+		t1 := time.Now()
 
 		swidth, sheight := c.screen.Size()
 		sdim := image.Rect(0, 0, 4*swidth, 8*sheight)
@@ -144,7 +170,13 @@ func (c *client) run() error {
 		rez.Convert(c.canvas, out, rez.NewBilinearFilter())
 
 		gfx.BlitRunes(c.screen, c.canvas, false)
+
+		c.drawHUD()
+
 		c.screen.Show()
+		t2 := time.Now()
+		c.frameDuration = t1.Sub(t0)
+		c.termDuration = t2.Sub(t1)
 	}
 
 	const (

@@ -395,15 +395,6 @@ func (c *client) renderOpenGL() {
 	//c.window.GLSwap()
 }
 
-func writeString(sc tcell.Screen, x, y int, s string, st tcell.Style) {
-	for _, r := range s {
-		if r != ' ' {
-			sc.SetContent(x, y, r, nil, st)
-		}
-		x++
-	}
-}
-
 func (c *client) hud(s tcell.Screen, frameTime time.Duration) {
 	if c.glVersion == "" {
 		c.glVersion = gl.GoStr(gl.GetString(gl.VERSION))
@@ -421,15 +412,15 @@ func (c *client) hud(s tcell.Screen, frameTime time.Duration) {
 		geoms = "off"
 	}
 
-	writeString(s, 0, 0,
+	gfx.WriteString(s, 0, 0,
 		fmt.Sprintf("ESC: Quit | +/-: Blend textures [%1.2f] | A: Approximate with shapes [%s]",
 			c.mixValue, geoms), st)
 
 	driver := fmt.Sprintf("Driver: %s", c.glVersion)
 
-	writeString(s, width-len(driver), height-1, driver, st)
+	gfx.WriteString(s, width-len(driver), height-1, driver, st)
 
-	writeString(s, 0, height-1,
+	gfx.WriteString(s, 0, height-1,
 		fmt.Sprintf("Frame time: %.2fms [%.2fms]",
 			float64(frameTime.Microseconds()/1000),
 			float64(c.showTime.Microseconds())/1000), st)
