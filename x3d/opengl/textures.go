@@ -65,12 +65,28 @@ func loadRGBAFromFile(fname string) (*image.RGBA, error) {
 	}
 
 	if rgba, ok := img.(*image.RGBA); ok {
+		yFlip(rgba)
 		return rgba, err
 	}
 
 	rgba := image.NewRGBA(img.Bounds())
 	draw.Draw(rgba, img.Bounds(), img, image.ZP, draw.Src)
+	yFlip(rgba)
 	return rgba, err
+}
+
+func yFlip(img *image.RGBA) {
+	h := img.Bounds().Dy()
+	for i, j := 0, h-1; i < j; i, j = i+1, j-1 {
+		si := img.PixOffset(0, i)
+		sj := img.PixOffset(0, j)
+		ri := img.Pix[si : si+img.Stride]
+		rj := img.Pix[sj : sj+img.Stride]
+		_ = rj[len(ri)-1]
+		for k, vi := range ri {
+			rj[k], ri[k] = vi, rj[k]
+		}
+	}
 }
 
 func (tc *TextureCache) NumTextures() int {
