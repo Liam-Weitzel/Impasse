@@ -21,12 +21,13 @@ const (
 	normalOfs   = unsafe.Offsetof(Vertex{}.normal)
 )
 
-func bindAttributes() {
+func bindVBO(vbo uint32) {
 	const (
 		positionIdx = iota
 		texCoordIdx
 		normalIdx
 	)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
 
 	gl.VertexAttribPointer(
 		positionIdx, 3, gl.FLOAT, false,
@@ -55,9 +56,7 @@ func createVBO(vertices []Vertex) (uint32, error) {
 
 	gl.GenBuffers(nBuffers, &vbo)
 
-	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-
-	bindAttributes()
+	bindVBO(vbo)
 
 	gl.BufferData(
 		gl.ARRAY_BUFFER,

@@ -2,7 +2,6 @@ package opengl
 
 import (
 	"errors"
-	"log"
 	"math"
 	"unsafe"
 
@@ -17,7 +16,7 @@ type CompiledShape struct {
 	ibo          uint32
 	diffuseColor mgl32.Vec3
 	nIndices     int32
-	vertices     []Vertex
+	ccw          bool
 }
 
 type ShapeCompiler struct {
@@ -27,12 +26,6 @@ type ShapeCompiler struct {
 func NewShapeCompiler(tc *TextureCache) *ShapeCompiler {
 	return &ShapeCompiler{
 		textureCache: tc,
-	}
-}
-
-func reverse(a []int32) {
-	for i, j := 0, len(a)-1; i < j; i, j = i+1, j-1 {
-		a[i], a[j] = a[j], a[i]
 	}
 }
 
@@ -54,11 +47,6 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 		var indices []int32
 		send := func() {
 			if l := len(indices); l > 0 {
-				/*
-					if !ifs.CCW {
-						reverse(indices)
-					}
-				*/
 				fn(indices)
 				indices = indices[:0]
 			}
@@ -88,9 +76,8 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 		for _, id := range ids {
 			var v Vertex
 			v.coord = ifs.Coordinates[ifs.CoordIndices[id%int32(len(ifs.CoordIndices))]]
-			log.Printf("%v\n", v.coord)
+			//log.Printf("%v\n", v.coord)
 
-			// TODO: Normalize to texture dimensions.
 			v.texCoord = ifs.TextureCoordinates[ifs.TexCoordIndices[id%int32(len(ifs.TexCoordIndices))]]
 
 			if ifs.NormalPerVertex {
@@ -108,15 +95,6 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 			indices = append(indices, idx)
 		}
 	})
-
-	// fix texCoords
-	if needFixing(ifs.TextureCoordinates) {
-		for i := range vertices {
-			log.Printf("tex before: %v\n", vertices[i].texCoord)
-			//fixTexCoord(&vertices[i].texCoord, t)
-			log.Printf("tex after: %v\n", vertices[i].texCoord)
-		}
-	}
 
 	ibo, err := createIBO(indices)
 	if err != nil {
@@ -141,42 +119,16 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 		ibo:          ibo,
 		diffuseColor: s.Appearance.DiffuseColor,
 		nIndices:     int32(len(indices)),
-		vertices:     vertices,
+		ccw:          s.Geometry.CCW,
 	}
 
 	return cs, nil
 }
 
-func needFixing(uvs []mgl32.Vec2) bool {
-	for _, uv := range uvs {
-		if uv[0] < 0 || uv[0] > 1 || uv[1] < 0 || uv[1] > 1 {
-			return true
-		}
-	}
-	return false
-}
-
-func fixTexCoord(uv *mgl32.Vec2, t *Texture) {
-	for uv[0] < 0 {
-		uv[0] += float32(t.Width)
-	}
-	for uv[1] < 0 {
-		uv[1] += float32(t.Height)
-	}
-	uv[0] /= float32(t.Width)
-	uv[1] /= float32(t.Height)
-}
-
 func (cs *CompiledShape) Render(s *State) {
-
-	//gl.BindTexture(gl.TEXTURE_2D, cs.texture)
-	//gl.BindBuffer(gl.VERTEX_ARRAY, cs.vbo)
-	//log.Printf("vbo: %d\n", cs.vbo)
-	//gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, cs.ibo)
-
-	// Bind the uniforms
-	//gl.Uniform1i(s.texSamplerUniformLoc, 0)
-	//gl.Uniform3fv(s.diffuseColLoc, 1, &cs.diffuseColor[0])
-
+	s.cullCCW(cs.ccw)
+	bindVBO(cs.vbo)
+	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, cs.ibo)
+	s.bindTexture(cs.texture)
 	gl.DrawElements(gl.TRIANGLE_FAN, cs.nIndices, gl.UNSIGNED_SHORT, unsafe.Pointer(nil))
 }

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"time"
-	"unsafe"
 
 	gl "github.com/go-gl/gl/v3.0/gles2"
 	"github.com/go-gl/mathgl/mgl32"
@@ -26,6 +25,9 @@ type State struct {
 	lightPosLoc          int32
 	ambientColLoc        int32
 	diffuseColLoc        int32
+
+	lastCull    uint32
+	lastTexture uint32
 }
 
 type Renderer struct {
@@ -44,10 +46,17 @@ func NewRenderer(ambientCol mgl32.Vec3, projMat mgl32.Mat4) (*Renderer, error) {
 
 	s := &State{}
 
-	if err := s.ExtractUniforms(program); err != nil {
+	if err := s.extractUniforms(program); err != nil {
 		gl.DeleteProgram(program)
 		return nil, err
 	}
+
+	gl.Enable(gl.CULL_FACE)
+	gl.ClearColor(0, 0.5, 1, 1)
+
+	gl.Enable(gl.PRIMITIVE_RESTART_FIXED_INDEX)
+	gl.Enable(gl.DEPTH_TEST)
+	gl.DepthFunc(gl.LESS)
 
 	return &Renderer{
 		state:      s,
@@ -78,7 +87,14 @@ func (r *Renderer) Render(c *Camera, css []*CompiledShape) {
 	mvMat := viewMat
 	normalMat := mvMat.Inv().Transpose()
 
+	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+	gl.Enable(gl.CULL_FACE)
+	r.state.lastCull = gl.CW
+	gl.FrontFace(r.state.lastCull)
+
 	gl.UseProgram(r.program)
+
+	gl.ActiveTexture(gl.TEXTURE0)
 
 	gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
 	gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
@@ -91,34 +107,36 @@ func (r *Renderer) Render(c *Camera, css []*CompiledShape) {
 	gl.Uniform3fv(r.state.ambientColLoc, 1, &r.ambientCol[0])
 
 	for _, cs := range css {
-		//gl.UseProgram(r.program)
-		gl.BindBuffer(gl.ARRAY_BUFFER, cs.vbo)
-		bindAttributes()
-		//log.Printf("vbo: %d\n", cs.vbo)
-		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, cs.ibo)
-
-		//gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
-		//gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
-		//	gl.UniformMatrix4fv(r.state.projMatLoc, 1, false, &r.projMat[0])
-		gl.BindTexture(gl.TEXTURE_2D, cs.texture)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-		gl.ActiveTexture(gl.TEXTURE0)
-		//gl.Disable(gl.CULL_FACE)
-		//gl.Enable(gl.PRIMITIVE_RESTART_FIXED_INDEX)
-		gl.Uniform1i(r.state.texSamplerUniformLoc, 0)
-		gl.Uniform3fv(r.state.diffuseColLoc, 1, &cs.diffuseColor[0])
-
-		gl.DrawElements(gl.TRIANGLE_FAN, cs.nIndices, gl.UNSIGNED_SHORT, unsafe.Pointer(nil))
-
-		//gl.Flush()
-		//gl.BindBuffer(gl.VERTEX_ARRAY, 0)
-		//gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, 0)
+		cs.Render(r.state)
 	}
 	log.Printf("Rendering took: %v\n", time.Since(start))
 }
 
-func (s *State) ExtractUniforms(program uint32) error {
+func (s *State) cullCCW(ccw bool) {
+	var value uint32
+	if ccw {
+		value = gl.CCW
+	} else {
+		value = gl.CW
+	}
+	if value != s.lastCull {
+		s.lastCull = value
+		gl.FrontFace(value)
+	}
+}
+
+func (s *State) bindTexture(texture uint32) {
+	if texture == s.lastTexture {
+		return
+	}
+	s.lastTexture = texture
+	gl.BindTexture(gl.TEXTURE_2D, texture)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.Uniform1i(s.texSamplerUniformLoc, 0)
+}
+
+func (s *State) extractUniforms(program uint32) error {
 
 	gl.UseProgram(program)
 

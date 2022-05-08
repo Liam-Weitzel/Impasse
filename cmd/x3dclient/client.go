@@ -117,21 +117,21 @@ func (c *client) run() error {
 	//gl.Viewport(0, 0, displayWidth, displayHeight)
 
 	//gl.Disable(gl.CULL_FACE)
-	gl.Enable(gl.CULL_FACE)
-	gl.FrontFace(gl.CW)
+	//gl.Enable(gl.CULL_FACE)
+	//gl.FrontFace(gl.CW)
 	//gl.CullFace(gl.BACK)
-	gl.Enable(gl.PRIMITIVE_RESTART_FIXED_INDEX)
-	gl.Enable(gl.DEPTH_TEST)
-	gl.DepthFunc(gl.LESS)
+	//gl.Enable(gl.PRIMITIVE_RESTART_FIXED_INDEX)
+	//gl.Enable(gl.DEPTH_TEST)
+	//gl.DepthFunc(gl.LESS)
 
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.ActiveTexture(gl.TEXTURE0)
+	//gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	//gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	// gl.ActiveTexture(gl.TEXTURE0)
 
-	gl.ClearColor(0, 0.5, 1, 1)
+	//gl.ClearColor(0, 0.5, 1, 1)
 	//gl.ClearDepthf(math.MaxFloat32)
 
-	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+	// gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 	camera := &opengl.Camera{
 		Position: c.scene.Viewpoints[0].Position,
