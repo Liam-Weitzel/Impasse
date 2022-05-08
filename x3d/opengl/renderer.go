@@ -2,8 +2,10 @@ package opengl
 
 import (
 	"fmt"
+	"image"
 	"log"
 	"time"
+	"unsafe"
 
 	gl "github.com/go-gl/gl/v3.0/gles2"
 	"github.com/go-gl/mathgl/mgl32"
@@ -70,7 +72,7 @@ func (r *Renderer) Delete() {
 	gl.DeleteProgram(r.program)
 }
 
-func (r *Renderer) Render(c *Camera, css []*CompiledShape) {
+func (r *Renderer) Render(c *Camera, css []*CompiledShape, img *image.RGBA) {
 
 	start := time.Now()
 
@@ -109,6 +111,15 @@ func (r *Renderer) Render(c *Camera, css []*CompiledShape) {
 	for _, cs := range css {
 		cs.Render(r.state)
 	}
+
+	gl.ReadBuffer(gl.COLOR_ATTACHMENT0)
+
+	gl.ReadPixels(
+		0, 0,
+		int32(img.Bounds().Dx()), int32(image.Black.Bounds().Dy()),
+		gl.RGBA, gl.UNSIGNED_BYTE,
+		unsafe.Pointer(&img.Pix[0]))
+
 	log.Printf("Rendering took: %v\n", time.Since(start))
 }
 

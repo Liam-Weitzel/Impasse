@@ -3,15 +3,14 @@ package main
 import (
 	"errors"
 	"image"
-	"image/png"
 	"log"
-	"os"
-	"unsafe"
 
+	"github.com/bamiaux/rez"
 	"github.com/gdamore/tcell/v2"
 	gl "github.com/go-gl/gl/v3.0/gles2"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/veandco/go-sdl2/sdl"
+	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d/opengl"
 )
@@ -32,6 +31,8 @@ type client struct {
 	context sdl.GLContext
 
 	screen tcell.Screen
+
+	canvas *image.RGBA
 }
 
 func startClient(
@@ -105,7 +106,6 @@ func (c *client) run() error {
 
 	css := make([]*opengl.CompiledShape, 0, len(c.scene.Shapes))
 
-	//for _, s := range c.scene.Shapes[:2] {
 	for _, s := range c.scene.Shapes {
 		cs, err := sc.Compile(s)
 		if err != nil {
@@ -114,48 +114,66 @@ func (c *client) run() error {
 		css = append(css, cs)
 	}
 
-	//gl.Viewport(0, 0, displayWidth, displayHeight)
-
-	//gl.Disable(gl.CULL_FACE)
-	//gl.Enable(gl.CULL_FACE)
-	//gl.FrontFace(gl.CW)
-	//gl.CullFace(gl.BACK)
-	//gl.Enable(gl.PRIMITIVE_RESTART_FIXED_INDEX)
-	//gl.Enable(gl.DEPTH_TEST)
-	//gl.DepthFunc(gl.LESS)
-
-	//gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	//gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	// gl.ActiveTexture(gl.TEXTURE0)
-
-	//gl.ClearColor(0, 0.5, 1, 1)
-	//gl.ClearDepthf(math.MaxFloat32)
-
-	// gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-
 	camera := &opengl.Camera{
 		Position: c.scene.Viewpoints[0].Position,
 	}
 
-	renderer.Render(camera, css)
-
-	gl.ReadBuffer(gl.COLOR_ATTACHMENT0)
-
 	out := image.NewRGBA(image.Rect(0, 0, displayWidth, displayHeight))
 
-	gl.ReadPixels(
-		0, 0,
-		displayWidth, displayHeight,
-		gl.RGBA, gl.UNSIGNED_BYTE,
-		unsafe.Pointer(&out.Pix[0]))
+	done := make(chan struct{})
+	defer close(done)
 
-	f, err := os.Create("out.png")
-	if err == nil {
-		png.Encode(f, out)
-		f.Close()
+	events := make(chan tcell.Event)
+	go c.screen.ChannelEvents(events, done)
+
+	render := func() {
+		renderer.Render(camera, css, out)
+
+		swidth, sheight := c.screen.Size()
+		sdim := image.Rect(0, 0, 4*swidth, 8*sheight)
+
+		if c.canvas == nil || !c.canvas.Bounds().Eq(sdim) {
+			c.canvas = image.NewRGBA(sdim)
+		}
+
+		rez.Convert(c.canvas, out, rez.NewBilinearFilter())
+
+		gfx.BlitRunes(c.screen, c.canvas, false)
 	}
 
-	log.Printf("Number of textures: %d\n", tc.NumTextures())
-	log.Printf("FBO: %d\n", fbo)
+	for {
+		render()
+
+		ev, ok := <-events
+		if !ok {
+			break
+		}
+		switch ev := ev.(type) {
+		case *tcell.EventResize:
+			render()
+			c.screen.Sync()
+		case *tcell.EventKey:
+			switch ev.Key() {
+			case tcell.KeyEsc, tcell.KeyCtrlC:
+				return nil
+			case tcell.KeyRune:
+				switch ev.Rune() {
+				case 'w':
+				case 'a':
+				case 's':
+				case 'd':
+				}
+			}
+		}
+
+		/*
+			f, err := os.Create("out.png")
+			if err == nil {
+				png.Encode(f, out)
+				f.Close()
+			}
+		*/
+	}
+
 	return nil
 }
