@@ -152,8 +152,6 @@ func (s *State) bindTexture(texture uint32) {
 	}
 	s.lastTexture = texture
 	gl.BindTexture(gl.TEXTURE_2D, texture)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.Uniform1i(s.texSamplerUniformLoc, 0)
 }
 

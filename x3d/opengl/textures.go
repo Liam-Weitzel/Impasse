@@ -138,6 +138,10 @@ func makeTexture(img *image.RGBA) (uint32, error) {
 	var texture uint32
 	gl.GenTextures(1, &texture)
 	gl.BindTexture(gl.TEXTURE_2D, texture)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 
 	width, height := int32(img.Bounds().Dx()), int32(img.Bounds().Dy())
 
@@ -147,6 +151,7 @@ func makeTexture(img *image.RGBA) (uint32, error) {
 		width, height,
 		0, gl.RGBA, gl.UNSIGNED_BYTE,
 		gl.Ptr(img.Pix))
+	gl.GenerateMipmap(gl.TEXTURE_2D)
 
 	if errNo := gl.GetError(); errNo != gl.NO_ERROR {
 		gl.DeleteBuffers(1, &texture)
