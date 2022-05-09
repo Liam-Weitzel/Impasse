@@ -149,12 +149,6 @@ func (c *client) run() error {
 
 	out := image.NewRGBA(image.Rect(0, 0, displayWidth, displayHeight))
 
-	done := make(chan struct{})
-	defer close(done)
-
-	events := make(chan tcell.Event)
-	go c.screen.ChannelEvents(events, done)
-
 	render := func() {
 		t0 := time.Now()
 		renderer.Render(camera, css, out)
@@ -184,60 +178,121 @@ func (c *client) run() error {
 		rotAngel  = 5
 	)
 
-	for {
-		render()
+	cooked := make(chan func())
 
-		ev, ok := <-events
-		if !ok {
-			break
-		}
+	var leave bool
+
+	action := func(ev tcell.Event) func() {
+		//log.Println("action called")
 		switch ev := ev.(type) {
 		case *tcell.EventResize:
-			render()
-			c.screen.Sync()
+			return func() {
+				//render()
+				c.screen.Sync()
+			}
 		case *tcell.EventKey:
 			switch ev.Key() {
 			case tcell.KeyEsc, tcell.KeyCtrlC:
-				return nil
+				return func() {
+					//log.Println("ESC pressed")
+					leave = true
+				}
 			case tcell.KeyRune:
 				switch ev.Rune() {
 				case 'w':
-					camera.Forward(stepWidth)
+					return func() { camera.Forward(stepWidth) }
 				case 'a':
-					camera.StrafeLeft(stepWidth)
+					return func() { camera.StrafeLeft(stepWidth) }
 				case 's':
-					camera.Backward(stepWidth)
+					return func() { camera.Backward(stepWidth) }
 				case 'd':
-					camera.StrafeRight(stepWidth)
+					return func() { camera.StrafeRight(stepWidth) }
 				case ' ':
-					camera.Up(stepWidth)
+					return func() { camera.Up(stepWidth) }
 				case 'c':
-					camera.Down(stepWidth)
+					return func() { camera.Down(stepWidth) }
 				}
 			case tcell.KeyUp:
-				camera.Forward(stepWidth)
+				return func() { camera.Forward(stepWidth) }
 			case tcell.KeyDown:
-				camera.Backward(stepWidth)
+				return func() { camera.Backward(stepWidth) }
 			case tcell.KeyLeft:
-				camera.RotateLeft(mgl32.DegToRad(rotAngel))
+				return func() { camera.RotateLeft(mgl32.DegToRad(rotAngel)) }
 			case tcell.KeyRight:
-				camera.RotateRight(mgl32.DegToRad(rotAngel))
+				return func() { camera.RotateRight(mgl32.DegToRad(rotAngel)) }
 			case tcell.KeyPgUp:
-				camera.RotateUp(mgl32.DegToRad(rotAngel))
+				return func() { camera.RotateUp(mgl32.DegToRad(rotAngel)) }
 			case tcell.KeyPgDn:
-				camera.RotateDown(mgl32.DegToRad(rotAngel))
-
+				return func() { camera.RotateDown(mgl32.DegToRad(rotAngel)) }
 			}
 		}
-
-		/*
-			f, err := os.Create("out.png")
-			if err == nil {
-				png.Encode(f, out)
-				f.Close()
-			}
-		*/
+		return func() {}
 	}
+
+	eventsDone := make(chan struct{})
+
+	events := make(chan tcell.Event)
+	go c.screen.ChannelEvents(events, eventsDone)
+
+	cookedDone := make(chan struct{})
+	defer close(cookedDone)
+
+	combine := func(a, b func()) func() {
+		return func() { a(); b() }
+	}
+
+	go func() {
+		defer close(eventsDone)
+		for {
+			//log.Println("A: before first")
+			var fn func()
+			for fn == nil {
+				select {
+				case ev, ok := <-events:
+					//log.Printf("A: new event %t: %v\n", ok, ev)
+					if !ok {
+						fn = func() { leave = true }
+					} else {
+						fn = action(ev)
+					}
+				case <-cookedDone:
+					return
+				}
+			}
+			//log.Println("A: before send")
+		send:
+			for {
+				select {
+				case ev := <-events:
+					//log.Println("A: second event")
+					fn = combine(fn, action(ev))
+				case cooked <- fn:
+					//log.Println("A: send success")
+					fn = nil
+					break send
+				}
+			}
+		}
+	}()
+
+	for !leave {
+		render()
+		//log.Println("B: waiting for cooked")
+		fn, ok := <-cooked
+		//log.Println("B: recieved cooked", ok)
+		if !ok {
+			break
+		}
+		fn()
+	}
+
+	/*
+		f, err := os.Create("out.png")
+		if err == nil {
+			png.Encode(f, out)
+			f.Close()
+		}
+	*/
 
 	return nil
 }
