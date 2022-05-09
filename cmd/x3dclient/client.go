@@ -93,6 +93,14 @@ func (c *client) drawHUD() {
 
 }
 
+type funcSlice []func()
+
+func (fs funcSlice) run() {
+	for _, fn := range fs {
+		fn()
+	}
+}
+
 func (c *client) run() error {
 
 	if len(c.scene.Viewpoints) == 0 {
@@ -178,7 +186,7 @@ func (c *client) run() error {
 		rotAngel  = 5
 	)
 
-	cooked := make(chan func())
+	cooked := make(chan funcSlice)
 
 	var leave bool
 
@@ -237,23 +245,19 @@ func (c *client) run() error {
 	cookedDone := make(chan struct{})
 	defer close(cookedDone)
 
-	combine := func(a, b func()) func() {
-		return func() { a(); b() }
-	}
-
 	go func() {
 		defer close(eventsDone)
 		for {
 			//log.Println("A: before first")
-			var fn func()
-			for fn == nil {
+			var fs funcSlice
+			for fs == nil {
 				select {
 				case ev, ok := <-events:
 					//log.Printf("A: new event %t: %v\n", ok, ev)
 					if !ok {
-						fn = func() { leave = true }
+						fs = funcSlice{func() { leave = true }}
 					} else {
-						fn = action(ev)
+						fs = funcSlice{action(ev)}
 					}
 				case <-cookedDone:
 					return
@@ -265,10 +269,9 @@ func (c *client) run() error {
 				select {
 				case ev := <-events:
 					//log.Println("A: second event")
-					fn = combine(fn, action(ev))
-				case cooked <- fn:
+					fs = append(fs, action(ev))
+				case cooked <- fs:
 					//log.Println("A: send success")
-					fn = nil
 					break send
 				}
 			}
@@ -278,12 +281,12 @@ func (c *client) run() error {
 	for !leave {
 		render()
 		//log.Println("B: waiting for cooked")
-		fn, ok := <-cooked
+		fs, ok := <-cooked
 		//log.Println("B: recieved cooked", ok)
 		if !ok {
 			break
 		}
-		fn()
+		fs.run()
 	}
 
 	/*
