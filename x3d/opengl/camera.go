@@ -32,7 +32,7 @@ func (c *Camera) Forward(width float32) {
 }
 
 func (c *Camera) Rotation() mgl32.Mat3 {
-	a := mgl32.Rotate3DZ(c.Angle)
+	a := mgl32.Rotate3DY(c.Angle)
 	b := mgl32.Rotate3DX(c.UpAngle)
 	return a.Mul3(b)
 }

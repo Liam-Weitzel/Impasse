@@ -12,12 +12,11 @@ type BoundingSphere struct {
 	Center mgl32.Vec3
 }
 
-func (bs *BoundingSphere) Intersects(aabb *AABB) bool {
+func (bs *BoundingSphere) IntersectsSqr(aabb *AABB) bool {
 	closest := aabb.ClosestPoint(bs.Center)
-	diff := bs.Center.Sub(closest)
+	diff := closest.Sub(bs.Center)
 	dS := diff.LenSqr()
-	r2 := bs.Radius * bs.Radius
-	return dS < r2
+	return dS < bs.Radius
 }
 
 func (bs *BoundingSphere) Rotate(m mgl32.Mat3, ofs mgl32.Vec3) BoundingSphere {

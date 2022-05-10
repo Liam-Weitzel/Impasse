@@ -23,7 +23,7 @@ const (
 	displayHeight = 400
 	fov           = 70
 	near          = 1
-	far           = 1500
+	far           = 1300
 )
 
 type client struct {
@@ -118,10 +118,16 @@ func (c *client) run() error {
 	ambientCol := mgl32.Vec3{0.75, 0.75, 0.75}
 	//ambientCol := mgl32.Vec3{1.5, 1.5, 1.5}
 
-	bs := x3d.FrustumSphere(
-		displayWidth, displayHeight,
-		near, far,
-		mgl32.DegToRad(fov))
+	/*
+
+		bs := x3d.FrustumSphere(
+			displayWidth, displayHeight,
+			near, far,
+			mgl32.DegToRad(fov))
+
+		bs.Radius *= bs.Radius
+
+	*/
 
 	projMat := mgl32.Perspective(
 		mgl32.DegToRad(fov),
@@ -164,15 +170,26 @@ func (c *client) run() error {
 
 	vis := make([]*opengl.CompiledShape, 0, len(css))
 
+	//log.Printf("sphere: %v\n", bs.Center)
+
 	render := func() {
 		t0 := time.Now()
-		fb := bs.Rotate(camera.Rotation(), camera.Position)
+		center := camera.Position
+		center[1] = -center[1]
+		//fb := bs.Rotate(camera.Rotation(), center)
+		fb := x3d.BoundingSphere{
+			Radius: 1300 * 1300,
+			Center: center,
+		}
 		for _, cs := range css {
-			if fb.Intersects(cs.Bounds) {
+			if fb.IntersectsSqr(cs.Bounds) {
 				vis = append(vis, cs)
 			}
 		}
-		log.Printf("total: %d vis: %d radius: %f\n", len(css), len(vis), fb.Radius)
+		/*
+			log.Printf("total: %d vis: %d radius: %f pos: %v\n",
+				len(css), len(vis), fb.Radius, camera.Position)
+		*/
 		renderer.Render(camera, vis, out)
 		vis = vis[:0]
 		t1 := time.Now()

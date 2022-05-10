@@ -10,13 +10,13 @@ type AABB struct {
 func (aabb *AABB) ClosestPoint(p mgl32.Vec3) mgl32.Vec3 {
 	// TODO: Implement me!
 	var r mgl32.Vec3
-	for i := range r {
-		if p[i] > aabb.Max[i] {
-			r[i] = aabb.Max[i]
-		} else if p[i] < aabb.Min[i] {
-			r[i] = aabb.Min[i]
+	for i, v := range p {
+		if m := aabb.Max[i]; v > m {
+			r[i] = m
+		} else if m := aabb.Min[i]; v < m {
+			r[i] = m
 		} else {
-			r[i] = p[i]
+			r[i] = v
 		}
 	}
 	return r
