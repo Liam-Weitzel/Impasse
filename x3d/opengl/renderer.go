@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"sort"
 	"unsafe"
 
 	gl "github.com/go-gl/gl/v3.0/gles2"
@@ -72,6 +73,11 @@ func (r *Renderer) Delete() {
 }
 
 func (r *Renderer) Render(c *Camera, css []*CompiledShape, img *image.RGBA) {
+
+	// Sort by textures to reduce texture changes.
+	sort.Slice(css, func(i, j int) bool {
+		return css[i].texture < css[j].texture
+	})
 
 	//pos := mgl32.Vec3{(1280 + 1344) / 2, 520, (-264 + -280) / 2}
 	//center := mgl32.Vec3{(1280 + 1344) / 2, 576, (-264 + -280) / 2}

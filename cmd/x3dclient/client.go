@@ -23,7 +23,7 @@ const (
 	displayHeight = 400
 	fov           = 70
 	near          = 1
-	far           = 1300
+	far           = 1500
 )
 
 type client struct {
@@ -178,7 +178,7 @@ func (c *client) run() error {
 		center[1] = -center[1]
 		//fb := bs.Rotate(camera.Rotation(), center)
 		fb := x3d.BoundingSphere{
-			Radius: 1300 * 1300,
+			Radius: 1500 * 1500,
 			Center: center,
 		}
 		for _, cs := range css {
