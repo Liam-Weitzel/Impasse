@@ -11,6 +11,7 @@ import (
 )
 
 type CompiledShape struct {
+	Bounds       *x3d.AABB
 	texture      uint32
 	vbo          uint32
 	ibo          uint32
@@ -114,6 +115,7 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 	layoutVBO(vbo)
 
 	cs := &CompiledShape{
+		Bounds:       &s.Bounds,
 		texture:      t.Texture,
 		vbo:          vbo,
 		ibo:          ibo,

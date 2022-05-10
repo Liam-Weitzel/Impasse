@@ -118,6 +118,11 @@ func (c *client) run() error {
 	ambientCol := mgl32.Vec3{0.75, 0.75, 0.75}
 	//ambientCol := mgl32.Vec3{1.5, 1.5, 1.5}
 
+	bs := x3d.FrustumSphere(
+		displayWidth, displayHeight,
+		near, far,
+		mgl32.DegToRad(fov))
+
 	projMat := mgl32.Perspective(
 		mgl32.DegToRad(fov),
 		float32(displayWidth)/displayHeight,
@@ -157,9 +162,19 @@ func (c *client) run() error {
 
 	out := image.NewRGBA(image.Rect(0, 0, displayWidth, displayHeight))
 
+	vis := make([]*opengl.CompiledShape, 0, len(css))
+
 	render := func() {
 		t0 := time.Now()
-		renderer.Render(camera, css, out)
+		fb := bs.Rotate(camera.Rotation(), camera.Position)
+		for _, cs := range css {
+			if fb.Intersects(cs.Bounds) {
+				vis = append(vis, cs)
+			}
+		}
+		log.Printf("total: %d vis: %d radius: %f\n", len(css), len(vis), fb.Radius)
+		renderer.Render(camera, vis, out)
+		vis = vis[:0]
 		t1 := time.Now()
 
 		swidth, sheight := c.screen.Size()

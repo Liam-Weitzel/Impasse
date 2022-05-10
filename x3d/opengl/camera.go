@@ -31,6 +31,12 @@ func (c *Camera) Forward(width float32) {
 	c.Position = c.Position.Add(delta)
 }
 
+func (c *Camera) Rotation() mgl32.Mat3 {
+	a := mgl32.Rotate3DZ(c.Angle)
+	b := mgl32.Rotate3DX(c.UpAngle)
+	return a.Mul3(b)
+}
+
 func (c *Camera) Backward(width float32) {
 	delta := mgl32.Vec3{
 		width * float32(math.Cos(float64(c.Angle))),
