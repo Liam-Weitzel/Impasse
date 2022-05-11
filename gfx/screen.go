@@ -8,6 +8,15 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
+func WriteString(sc tcell.Screen, x, y int, s string, st tcell.Style) {
+	for _, r := range s {
+		if r != ' ' {
+			sc.SetContent(x, y, r, nil, st)
+		}
+		x++
+	}
+}
+
 func BlitRunes(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 
 	width, height := canvas.Rect.Dx(), canvas.Rect.Dy()
