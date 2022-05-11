@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"log"
+	"math"
 	"time"
 
 	"github.com/bamiaux/rez"
@@ -157,13 +158,23 @@ func (c *client) run() error {
 		css = append(css, cs)
 	}
 
-	p := c.scene.Viewpoints[0].Position
+	vp := c.scene.Viewpoints[0]
+
+	p := vp.Position
 	//p[0], p[2] = p[2], p[0]
 	p[1] = -p[1]
 
+	angle := vp.Orientation[3]
+
+	if vp.Orientation[0] > 0 {
+		if angle += math.Pi; angle > 2*math.Pi {
+			angle -= 2 * math.Pi
+		}
+	}
+
 	camera := &opengl.Camera{
 		Position: p, // c.scene.Viewpoints[0].Position,
-		Angle:    mgl32.DegToRad(270),
+		Angle:    angle,
 	}
 
 	out := image.NewRGBA(image.Rect(0, 0, displayWidth, displayHeight))
