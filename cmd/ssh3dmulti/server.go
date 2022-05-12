@@ -34,6 +34,56 @@ func (s *server) newID() (id uint64) {
 	return
 }
 
+func (s *server) broadcast(msg string, src net.Conn) {
+	s.cmds <- func(s *server) {
+		for con, out := range s.cons {
+			if con != src {
+				out <- msg
+			}
+		}
+	}
+}
+
+func (s *server) closeCon(con net.Conn) {
+	s.cmds <- func(s *server) {
+		con.Close()
+		delete(s.cons, con)
+	}
+}
+
+func (s *server) send(con net.Conn, out <-chan string) {
+	for msg := range out {
+		if _, err := con.Write([]byte(msg)); err != nil {
+			s.closeCon(con)
+		}
+	}
+}
+
+func (s *server) receive(con net.Conn) {
+	defer s.closeCon(con)
+	sc := bufio.NewScanner(con)
+	for sc.Scan() {
+		msg := sc.Text()
+		s.broadcast(msg, con)
+	}
+	if err := sc.Err(); err != nil {
+		log.Printf("error: %v\n", err)
+	}
+}
+
+func (s *server) newConnection(con net.Conn) {
+	s.cmds <- func(s *server) {
+		log.Println("new connection")
+
+		out := make(chan string, 5)
+		s.cons[con] = out
+
+		go s.send(con, out)
+
+		go s.receive(con)
+	}
+}
+
 func (s *server) run(done chan struct{}) error {
 
 	var network, addr string
@@ -53,7 +103,7 @@ func (s *server) run(done chan struct{}) error {
 	defer listener.Close()
 
 	go func() {
-		for !s.quit {
+		for {
 			con, err := listener.Accept()
 			if err != nil {
 				s.cmds <- func(s *server) {
@@ -63,44 +113,7 @@ func (s *server) run(done chan struct{}) error {
 				return
 			}
 			log.Println("accepted")
-			s.cmds <- func(s *server) {
-				log.Println("new connection")
-
-				out := make(chan string, 5)
-
-				go func() {
-					for msg := range out {
-						if _, err := con.Write([]byte(msg)); err != nil {
-							s.cmds <- func(s *server) {
-								con.Close()
-								delete(s.cons, con)
-							}
-						}
-					}
-				}()
-
-				s.cons[con] = out
-				go func() {
-					sc := bufio.NewScanner(con)
-					for sc.Scan() {
-						msg := sc.Text()
-						s.cmds <- func(s *server) {
-							for c, o := range s.cons {
-								if c != con {
-									o <- msg
-								}
-							}
-						}
-					}
-					if err := sc.Err(); err != nil {
-						log.Printf("error: %v\n", err)
-					}
-					s.cmds <- func(s *server) {
-						con.Close()
-						delete(s.cons, con)
-					}
-				}()
-			}
+			s.newConnection(con)
 		}
 	}()
 
