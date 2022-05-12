@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/bamiaux/rez"
 	"github.com/gdamore/tcell/v2"
 	gl "github.com/go-gl/gl/v3.0/gles2"
 	"github.com/go-gl/mathgl/mgl32"
@@ -38,10 +37,17 @@ type client struct {
 
 	window  *sdl.Window
 	context sdl.GLContext
+	screen  tcell.Screen
 
-	camera *opengl.Camera
+	textureCache *opengl.TextureCache
 
-	screen tcell.Screen
+	shapes        []*opengl.CompiledShape
+	visibleShapes []*opengl.CompiledShape
+
+	camera   *opengl.Camera
+	renderer *opengl.Renderer
+
+	renderedImage *image.RGBA
 
 	canvas *image.RGBA
 
@@ -149,27 +155,17 @@ func (c *client) run() error {
 		float32(displayWidth)/displayHeight,
 		near, far)
 
-	renderer, err := opengl.NewRenderer(ambientCol, projMat)
+	c.renderer, err = opengl.NewRenderer(ambientCol, projMat)
 	if err != nil {
 		return err
 	}
-	defer renderer.Delete()
+	defer c.renderer.Delete()
 
-	log.Printf("num shapes: %d\n", len(c.scene.Shapes))
+	c.textureCache = opengl.NewTextureCache(c.directory)
+	defer c.textureCache.Delete()
 
-	tc := opengl.NewTextureCache(c.directory)
-	defer tc.Delete()
-
-	sc := opengl.NewShapeCompiler(tc)
-
-	css := make([]*opengl.CompiledShape, 0, len(c.scene.Shapes))
-
-	for _, s := range c.scene.Shapes {
-		cs, err := sc.Compile(s)
-		if err != nil {
-			return err
-		}
-		css = append(css, cs)
+	if err := c.compileShapes(); err != nil {
+		return nil
 	}
 
 	rnd := rand.New(rand.NewSource(time.Now().Unix()))
@@ -203,52 +199,7 @@ func (c *client) run() error {
 		Angle:    angle,
 	}
 
-	out := image.NewRGBA(image.Rect(0, 0, displayWidth, displayHeight))
-
-	vis := make([]*opengl.CompiledShape, 0, len(css))
-
 	//log.Printf("sphere: %v\n", bs.Center)
-
-	render := func() {
-		t0 := time.Now()
-		center := c.camera.Position
-		center[1] = -center[1]
-		//fb := bs.Rotate(camera.Rotation(), center)
-		fb := x3d.BoundingSphere{
-			Radius: 1500 * 1500,
-			Center: center,
-		}
-		for _, cs := range css {
-			if fb.IntersectsSqr(cs.Bounds) {
-				vis = append(vis, cs)
-			}
-		}
-		/*
-			log.Printf("total: %d vis: %d radius: %f pos: %v\n",
-				len(css), len(vis), fb.Radius, camera.Position)
-		*/
-		renderer.Render(c.camera, vis, out)
-		vis = vis[:0]
-		t1 := time.Now()
-
-		swidth, sheight := c.screen.Size()
-		sdim := image.Rect(0, 0, 4*swidth, 8*sheight)
-
-		if c.canvas == nil || !c.canvas.Bounds().Eq(sdim) {
-			c.canvas = image.NewRGBA(sdim)
-		}
-
-		rez.Convert(c.canvas, out, rez.NewBilinearFilter())
-
-		gfx.BlitRunes(c.screen, c.canvas, false)
-
-		c.drawHUD()
-
-		c.screen.Show()
-		t2 := time.Now()
-		c.frameDuration = t1.Sub(t0)
-		c.termDuration = t2.Sub(t1)
-	}
 
 	eventsDone := make(chan struct{})
 	defer close(eventsDone)
@@ -261,7 +212,7 @@ func (c *client) run() error {
 	go batching(events, keys, keyboardConvert)
 
 	for !c.quit {
-		render()
+		c.render()
 		//log.Println("B: waiting for cooked")
 		k, ok := <-keys
 		//log.Println("B: recieved cooked", ok)
