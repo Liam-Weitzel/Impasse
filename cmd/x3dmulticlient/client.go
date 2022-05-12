@@ -34,8 +34,12 @@ type client struct {
 	connection *connection
 	userID     uint64
 
+	quit bool
+
 	window  *sdl.Window
 	context sdl.GLContext
+
+	camera *opengl.Camera
 
 	screen tcell.Screen
 
@@ -110,14 +114,6 @@ func (c *client) drawHUD() {
 			float64(c.frameDuration.Microseconds()/1000),
 			float64(c.termDuration.Microseconds())/1000), st)
 
-}
-
-type funcSlice []func()
-
-func (fs funcSlice) run() {
-	for _, fn := range fs {
-		fn()
-	}
 }
 
 func (c *client) run() error {
@@ -202,7 +198,7 @@ func (c *client) run() error {
 		}
 	}
 
-	camera := &opengl.Camera{
+	c.camera = &opengl.Camera{
 		Position: p, // c.scene.Viewpoints[0].Position,
 		Angle:    angle,
 	}
@@ -215,7 +211,7 @@ func (c *client) run() error {
 
 	render := func() {
 		t0 := time.Now()
-		center := camera.Position
+		center := c.camera.Position
 		center[1] = -center[1]
 		//fb := bs.Rotate(camera.Rotation(), center)
 		fb := x3d.BoundingSphere{
@@ -231,7 +227,7 @@ func (c *client) run() error {
 			log.Printf("total: %d vis: %d radius: %f pos: %v\n",
 				len(css), len(vis), fb.Radius, camera.Position)
 		*/
-		renderer.Render(camera, vis, out)
+		renderer.Render(c.camera, vis, out)
 		vis = vis[:0]
 		t1 := time.Now()
 
@@ -254,112 +250,25 @@ func (c *client) run() error {
 		c.termDuration = t2.Sub(t1)
 	}
 
-	const (
-		stepWidth = 4
-		rotAngel  = 5
-	)
-
-	cooked := make(chan funcSlice)
-
-	var leave bool
-
-	action := func(ev tcell.Event) func() {
-		//log.Println("action called")
-		switch ev := ev.(type) {
-		case *tcell.EventResize:
-			return func() {
-				//render()
-				c.screen.Sync()
-			}
-		case *tcell.EventKey:
-			switch ev.Key() {
-			case tcell.KeyEsc, tcell.KeyCtrlC:
-				return func() {
-					//log.Println("ESC pressed")
-					leave = true
-				}
-			case tcell.KeyRune:
-				switch ev.Rune() {
-				case 'w':
-					return func() { camera.Forward(stepWidth) }
-				case 'a':
-					return func() { camera.StrafeLeft(stepWidth) }
-				case 's':
-					return func() { camera.Backward(stepWidth) }
-				case 'd':
-					return func() { camera.StrafeRight(stepWidth) }
-				case ' ':
-					return func() { camera.Up(stepWidth) }
-				case 'c':
-					return func() { camera.Down(stepWidth) }
-				}
-			case tcell.KeyUp:
-				return func() { camera.Forward(stepWidth) }
-			case tcell.KeyDown:
-				return func() { camera.Backward(stepWidth) }
-			case tcell.KeyLeft:
-				return func() { camera.RotateLeft(mgl32.DegToRad(rotAngel)) }
-			case tcell.KeyRight:
-				return func() { camera.RotateRight(mgl32.DegToRad(rotAngel)) }
-			case tcell.KeyPgUp:
-				return func() { camera.RotateUp(mgl32.DegToRad(rotAngel)) }
-			case tcell.KeyPgDn:
-				return func() { camera.RotateDown(mgl32.DegToRad(rotAngel)) }
-			}
-		}
-		return func() {}
-	}
-
 	eventsDone := make(chan struct{})
+	defer close(eventsDone)
 
 	events := make(chan tcell.Event)
 	go c.screen.ChannelEvents(events, eventsDone)
 
-	cookedDone := make(chan struct{})
-	defer close(cookedDone)
+	keys := make(chan batch)
 
-	go func() {
-		defer close(eventsDone)
-		for {
-			//log.Println("A: before first")
-			var fs funcSlice
-			for fs == nil {
-				select {
-				case ev, ok := <-events:
-					//log.Printf("A: new event %t: %v\n", ok, ev)
-					if !ok {
-						fs = funcSlice{func() { leave = true }}
-					} else {
-						fs = funcSlice{action(ev)}
-					}
-				case <-cookedDone:
-					return
-				}
-			}
-			//log.Println("A: before send")
-		send:
-			for {
-				select {
-				case ev := <-events:
-					//log.Println("A: second event")
-					fs = append(fs, action(ev))
-				case cooked <- fs:
-					//log.Println("A: send success")
-					break send
-				}
-			}
-		}
-	}()
+	go batching(events, keys, keyboardConvert)
 
-	for !leave {
+	for !c.quit {
 		render()
 		//log.Println("B: waiting for cooked")
-		fs, ok := <-cooked
+		k, ok := <-keys
 		//log.Println("B: recieved cooked", ok)
 		if !ok {
 			break
 		}
-		fs.run()
+		k.run(c)
 	}
 
 	// TODO: This should block.
