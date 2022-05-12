@@ -12,6 +12,7 @@ type server struct {
 	cmds       chan func(*server)
 	cons       map[net.Conn]chan string
 	quit       bool
+	uniqueIDs  uint64
 }
 
 func newServer(connection string) *server {
@@ -20,6 +21,17 @@ func newServer(connection string) *server {
 		cmds:       make(chan func(*server)),
 		cons:       make(map[net.Conn]chan string),
 	}
+}
+
+func (s *server) newID() (id uint64) {
+	done := make(chan struct{})
+	s.cmds <- func(s *server) {
+		id = s.uniqueIDs
+		s.uniqueIDs++
+		close(done)
+	}
+	<-done
+	return
 }
 
 func (s *server) run(done chan struct{}) error {

@@ -19,6 +19,7 @@ import (
 type handler struct {
 	renderer string
 	args     []string
+	server   *server
 }
 
 func setWinsize(f *os.File, w, h int) {
@@ -42,7 +43,10 @@ func (h *handler) sshHandle(s ssh.Session) {
 		cmdCtx, h.renderer,
 		h.args...)
 
-	cmd.Env = append(s.Environ(), fmt.Sprintf("TERM=%s", ptyReq.Term))
+	cmd.Env = append(s.Environ(),
+		fmt.Sprintf("TERM=%s", ptyReq.Term),
+		fmt.Sprintf("SSH3D_CONNECTION=%s", h.server.connection),
+		fmt.Sprintf("SSH3D_ID=%d", h.server.newID()))
 
 	f, err := pty.Start(cmd)
 	if err != nil {
@@ -97,6 +101,7 @@ func main() {
 	h := handler{
 		renderer: *renderer,
 		args:     flag.Args(),
+		server:   cs,
 	}
 
 	s := &ssh.Server{
