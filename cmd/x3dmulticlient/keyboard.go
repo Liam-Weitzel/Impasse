@@ -10,48 +10,61 @@ const (
 	rotAngel  = 5
 )
 
-func (c *client) resize() { c.screen.Sync() }
-
 func (c *client) doQuit() { c.quit = true }
+
+func (c *client) resize() {
+	c.screen.Sync()
+	c.dirty = true
+}
 
 func (c *client) forward() {
 	c.camera.Forward(stepWidth)
+	c.dirty = true
 }
 
 func (c *client) strafeLeft() {
 	c.camera.StrafeLeft(stepWidth)
+	c.dirty = true
 }
 
 func (c *client) backward() {
 	c.camera.Backward(stepWidth)
+	c.dirty = true
 }
 
 func (c *client) strafeRight() {
 	c.camera.StrafeRight(stepWidth)
+	c.dirty = true
 }
 
 func (c *client) up() {
 	c.camera.Up(stepWidth)
+	c.dirty = true
 }
 
 func (c *client) down() {
 	c.camera.Down(stepWidth)
+	c.dirty = true
 }
 
 func (c *client) rotateLeft() {
 	c.camera.RotateLeft(mgl32.DegToRad(rotAngel))
+	c.dirty = true
 }
 
 func (c *client) rotateRight() {
 	c.camera.RotateRight(mgl32.DegToRad(rotAngel))
+	c.dirty = true
 }
 
 func (c *client) rotateUp() {
 	c.camera.RotateUp(mgl32.DegToRad(rotAngel))
+	c.dirty = true
 }
 
 func (c *client) rotateDown() {
 	c.camera.RotateDown(mgl32.DegToRad(rotAngel))
+	c.dirty = true
 }
 
 func keyboardConvert(ev tcell.Event) func(*client) {

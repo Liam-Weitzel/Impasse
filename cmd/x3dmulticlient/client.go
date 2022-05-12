@@ -33,7 +33,8 @@ type client struct {
 	connection *connection
 	userID     uint64
 
-	quit bool
+	quit  bool
+	dirty bool
 
 	window  *sdl.Window
 	context sdl.GLContext
@@ -211,8 +212,11 @@ func (c *client) run() error {
 
 	go batching(events, keys, keyboardConvert)
 
-	for !c.quit {
-		c.render()
+	for c.dirty = true; !c.quit; {
+		if c.dirty {
+			c.dirty = false
+			c.render()
+		}
 		//log.Println("B: waiting for cooked")
 		k, ok := <-keys
 		//log.Println("B: recieved cooked", ok)
