@@ -31,7 +31,7 @@ const (
 type client struct {
 	scene      *x3d.Scene
 	directory  string
-	connection string
+	connection *connection
 	userID     uint64
 
 	window  *sdl.Window
@@ -50,13 +50,22 @@ func startClient(
 	connection string, userID uint64,
 	screen tcell.Screen, window *sdl.Window,
 ) error {
+
+	con, err := newConnection(connection)
+	if err != nil {
+		return err
+	}
+	conDone := make(chan struct{})
+	defer close(conDone)
+	con.run(conDone)
+
 	c := &client{
 		scene:      scene,
 		directory:  directory,
 		window:     window,
 		screen:     screen,
-		connection: connection,
 		userID:     userID,
+		connection: con,
 	}
 
 	log.Printf("connection: %s\n", connection)
@@ -178,6 +187,12 @@ func (c *client) run() error {
 	p := vp.Position
 	//p[0], p[2] = p[2], p[0]
 	p[1] = -p[1]
+
+	// introduce ourself
+	c.connection.send(fmt.Sprintf("h %x %f %f %f %x %x %x\n",
+		c.userID,
+		p[0], p[1], p[2],
+		r, g, b))
 
 	angle := vp.Orientation[3]
 
@@ -347,13 +362,33 @@ func (c *client) run() error {
 		fs.run()
 	}
 
-	/*
-		f, err := os.Create("out.png")
-		if err == nil {
-			png.Encode(f, out)
-			f.Close()
-		}
-	*/
+	// TODO: This should block.
+	c.connection.send(
+		fmt.Sprintf("l %x\n", c.userID))
 
 	return nil
+}
+
+func (c *client) moveObject(id uint64, x, y, z float32) {
+	// TODO: Implement me!
+	log.Printf("move object: %d -> [%.2f, %.2f, %.2f]\n", id, x, y, z)
+}
+
+func (c *client) helloObject(id uint64, x, y, z float32, r, g, b byte) {
+	// TODO: Implement me!
+	log.Printf("hello object: %d -> [%.2f, %.2f, %.2f] (%02x, %02x, %02x)\n",
+		id,
+		x, y, z,
+		r, g, b)
+
+	// introduce ourself
+	c.connection.send(fmt.Sprintf("h %x %f %f %f %x %x %x\n",
+		c.userID,
+		0, 0, 0,
+		0, 0, 0))
+}
+
+func (c *client) leavObject(id uint64) {
+	// TODO: Implement me!
+	log.Printf("leave object: %d\n", id)
 }

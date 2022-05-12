@@ -47,6 +47,7 @@ func (s *server) broadcast(msg string, src net.Conn) {
 
 func (s *server) closeCon(con net.Conn) {
 	s.cmds <- func(s *server) {
+		log.Println("connection close")
 		con.Close()
 		delete(s.cons, con)
 	}
