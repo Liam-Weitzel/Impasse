@@ -6,6 +6,7 @@ import (
 	"image"
 	"log"
 	"math"
+	"math/rand"
 	"time"
 
 	"github.com/bamiaux/rez"
@@ -166,7 +167,13 @@ func (c *client) run() error {
 		css = append(css, cs)
 	}
 
-	vp := c.scene.Viewpoints[0]
+	rnd := rand.New(rand.NewSource(time.Now().Unix()))
+	vpN := rnd.Intn(len(c.scene.Viewpoints))
+	vp := c.scene.Viewpoints[vpN]
+
+	r, g, b := gfx.RandomColor(rnd)
+
+	log.Printf("color: [r: %d, g: %d, b: %d]\n", r, g, b)
 
 	p := vp.Position
 	//p[0], p[2] = p[2], p[0]
