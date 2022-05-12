@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"syscall"
 	"unsafe"
@@ -88,11 +89,13 @@ func main() {
 	cs := newServer(*connection)
 
 	done := make(chan struct{})
-	defer close(done)
+
+	connectionDied := make(chan struct{})
 
 	go func() {
+		defer close(connectionDied)
 		if err := cs.run(done); err != nil {
-			log.Fatalf("connection error: %v\n", err)
+			log.Printf("connection error: %v\n", err)
 		}
 	}()
 
@@ -109,7 +112,27 @@ func main() {
 		Handler: h.sshHandle,
 	}
 
-	if err := s.ListenAndServe(); err != nil {
-		log.Printf("error: %v\n", err)
+	sshDied := make(chan struct{})
+
+	go func() {
+		defer close(sshDied)
+		if err := s.ListenAndServe(); err != nil {
+			log.Printf("error: %v\n", err)
+		}
+	}()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, os.Kill)
+
+	select {
+	case <-sigChan:
+		log.Println("killed by Ctrl-C")
+	case <-sshDied:
+		log.Println("ssh server died")
+	case <-connectionDied:
+		log.Println("connection server died")
 	}
+	close(done)
+
+	<-connectionDied
 }

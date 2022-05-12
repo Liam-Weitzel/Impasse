@@ -9,6 +9,7 @@ import (
 
 type server struct {
 	connection string
+	listener   net.Listener
 	cmds       chan func(*server)
 	cons       map[net.Conn]chan string
 	quit       bool
@@ -79,17 +80,29 @@ func (s *server) newConnection(con net.Conn) {
 		s.cons[con] = out
 
 		go s.send(con, out)
-
 		go s.receive(con)
 	}
 }
 
-func (s *server) run(done chan struct{}) error {
+func (s *server) doQuit() { s.quit = true }
 
+func (s *server) accept() {
+	for {
+		con, err := s.listener.Accept()
+		if err != nil {
+			s.cmds <- (*server).doQuit
+			return
+		}
+		log.Println("accepted")
+		s.newConnection(con)
+	}
+}
+
+func (s *server) listen() error {
 	var network, addr string
 	idx := strings.IndexRune(s.connection, ':')
 	if idx < 0 {
-		network = "tcp"
+		network = "unix"
 		addr = s.connection
 	} else {
 		network = s.connection[:idx]
@@ -100,26 +113,28 @@ func (s *server) run(done chan struct{}) error {
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
+	s.listener = listener
+	return nil
+}
 
-	go func() {
-		for {
-			con, err := listener.Accept()
-			if err != nil {
-				s.cmds <- func(s *server) {
-					log.Printf("listen failed: %v\n", err)
-					s.quit = true
-				}
-				return
-			}
-			log.Println("accepted")
-			s.newConnection(con)
-		}
-	}()
+func (s server) shutdown() {
+	log.Println("shutdown")
+	s.listener.Close()
+}
+
+func (s *server) run(done chan struct{}) error {
+
+	if err := s.listen(); err != nil {
+		return err
+	}
+	defer s.shutdown()
+
+	go s.accept()
 
 	for !s.quit {
 		select {
 		case <-done:
+			log.Println("done closed")
 			return nil
 		case fn := <-s.cmds:
 			fn(s)
