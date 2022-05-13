@@ -15,15 +15,25 @@ uniform sampler2D texSampler;
 
 uniform vec3 ambientCol; // The light and object's combined ambient color
 uniform vec3 diffuseCol;  // The light and object's combined diffuse color
+uniform bool useTexture;
 
 const float invRadiusSq = 0.00001;
 const float fogNear = 0.0;
 const float fogFar = 1500.0;
 const vec4 fogColor = vec4(0.0, 0.0, 0.0, 1.0);
 
+const vec4 white = vec4(0.7, 0.7, 0.7, 1.0);
+
 void main() {
+
+    vec4 col;
+
+    if (useTexture) {
+        col = texture(texSampler, texCoord);
+    } else {
+        col = white;
+    }
     // base color from diffuse texture
-    vec4 col = texture(texSampler, texCoord);
 
     // ambient lighting
     vec3 ambient = vec3(ambientCol * col.xyz);

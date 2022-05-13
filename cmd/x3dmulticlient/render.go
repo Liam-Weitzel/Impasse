@@ -53,7 +53,26 @@ func (c *client) render() {
 		log.Printf("total: %d vis: %d radius: %f pos: %v\n",
 			len(css), len(vis), fb.Radius, camera.Position)
 	*/
-	c.renderer.Render(c.camera, c.visibleShapes, c.renderedImage)
+	c.renderer.RenderShapes(c.camera, c.visibleShapes)
+	pos := c.scene.Viewpoints[0].Position
+	pos[1] = -pos[1]
+
+	if len(c.attendees) > 0 {
+
+		spheres := make([]opengl.SpherePostion, 0, len(c.attendees))
+
+		for _, att := range c.attendees {
+			spheres = append(spheres, opengl.SpherePostion{
+				Pos: att.pos,
+				Col: att.col,
+			})
+		}
+
+		c.renderer.RenderSpheres(c.camera, c.sphere, spheres)
+	}
+
+	c.renderer.ReadImage(c.renderedImage)
+
 	c.visibleShapes = c.visibleShapes[:0]
 	t1 := time.Now()
 

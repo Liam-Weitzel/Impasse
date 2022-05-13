@@ -57,6 +57,8 @@ type client struct {
 
 	attendees map[uint64]*attendee
 	color     mgl32.Vec3
+
+	sphere *opengl.Sphere
 }
 
 func startClient(
@@ -165,6 +167,11 @@ func (c *client) run() error {
 		return err
 	}
 	defer c.renderer.Delete()
+
+	if c.sphere, err = opengl.NewSphere(15, 16, 16, false); err != nil {
+		return err
+	}
+	defer c.sphere.Delete()
 
 	c.textureCache = opengl.NewTextureCache(c.directory)
 	defer c.textureCache.Delete()

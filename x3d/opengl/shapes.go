@@ -132,5 +132,6 @@ func (cs *CompiledShape) Render(s *State) {
 	bindVBO(cs.vbo)
 	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, cs.ibo)
 	s.bindTexture(cs.texture)
+	gl.Uniform3fv(s.diffuseColLoc, 1, &cs.diffuseColor[0])
 	gl.DrawElements(gl.TRIANGLE_FAN, cs.nIndices, gl.UNSIGNED_SHORT, unsafe.Pointer(nil))
 }

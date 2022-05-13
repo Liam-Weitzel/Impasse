@@ -56,7 +56,6 @@ func (c *connection) outgoing(done chan struct{}) {
 		case <-done:
 			return
 		case msg := <-c.out:
-			log.Println("outgoing:", msg)
 			if _, err := c.con.Write([]byte(msg)); err != nil {
 				log.Printf("outgoing error: %v\n", err)
 				return
