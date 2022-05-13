@@ -1,6 +1,8 @@
 package main
 
 import (
+	"math"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/go-gl/mathgl/mgl32"
 )
@@ -73,6 +75,24 @@ func (c *client) rotateDown() {
 	c.dirty = true
 }
 
+func (c *client) randomPos() {
+	vp := c.scene.Viewpoints[c.rnd.Intn(len(c.scene.Viewpoints))]
+	pos := vp.Position
+	pos[1] = -pos[1]
+	c.camera.Position = pos
+
+	angle := vp.Orientation[3]
+
+	if vp.Orientation[0] > 0 {
+		if angle += math.Pi; angle > 2*math.Pi {
+			angle -= 2 * math.Pi
+		}
+	}
+	c.camera.Angle = angle
+	c.dirty = true
+	c.connection.sendPos(c.userID, c.camera.Position)
+}
+
 func keyboardConvert(ev tcell.Event) func(*client) {
 
 	switch ev := ev.(type) {
@@ -96,6 +116,8 @@ func keyboardConvert(ev tcell.Event) func(*client) {
 				return (*client).up
 			case 'c':
 				return (*client).down
+			case 'r':
+				return (*client).randomPos
 			}
 		case tcell.KeyUp:
 			return (*client).forward

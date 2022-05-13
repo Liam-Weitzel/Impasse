@@ -58,6 +58,8 @@ type client struct {
 	attendees map[uint64]*attendee
 	color     mgl32.Vec3
 
+	rnd *rand.Rand
+
 	sphere *opengl.Sphere
 }
 
@@ -85,8 +87,8 @@ func startClient(
 		attendees:  make(map[uint64]*attendee),
 	}
 
-	log.Printf("connection: %s\n", connection)
-	log.Printf("user ID: %d\n", userID)
+	//log.Printf("connection: %s\n", connection)
+	//log.Printf("user ID: %d\n", userID)
 
 	if err := c.setupOpenGL(); err != nil {
 		return err
@@ -117,7 +119,7 @@ func (c *client) drawHUD() {
 		Foreground(tcell.ColorYellow)
 
 	gfx.WriteString(c.screen, 0, 0,
-		"ESC: Quit|Cursor/WASD: Move|PgUp/PgD: Look up/down|SPACE/C: Up/Down",
+		"ESC: Quit|Cursor/WASD: Move|PgUp/PgD: Look up/down|SPACE/C: Up/Down|R: Random Position",
 		st)
 
 	_, height := c.screen.Size()
@@ -180,11 +182,11 @@ func (c *client) run() error {
 		return nil
 	}
 
-	rnd := rand.New(rand.NewSource(time.Now().Unix()))
-	vpN := rnd.Intn(len(c.scene.Viewpoints))
+	c.rnd = rand.New(rand.NewSource(time.Now().Unix()))
+	vpN := c.rnd.Intn(len(c.scene.Viewpoints))
 	vp := c.scene.Viewpoints[vpN]
 
-	r, g, b := gfx.RandomColor(rnd)
+	r, g, b := gfx.RandomColor(c.rnd)
 	c.color = mgl32.Vec3{float32(r) / 255, float32(g) / 255, float32(b) / 255}
 
 	p := vp.Position
@@ -246,7 +248,8 @@ func (c *client) run() error {
 }
 
 func (c *client) moveAttendee(id uint64, x, y, z float32) {
-	log.Printf("move %d -> [%.2f, %.2f, %.2f]\n", id, x, y, z)
+
+	// log.Printf("move %d -> [%.2f, %.2f, %.2f]\n", id, x, y, z)
 	att := c.attendees[id]
 	if att == nil {
 		return
@@ -260,10 +263,12 @@ func (c *client) moveAttendee(id uint64, x, y, z float32) {
 
 func (c *client) helloAttendee(id uint64, x, y, z float32, r, g, b byte) {
 
-	log.Printf("hello %d -> [%.2f, %.2f, %.2f] (%02x, %02x, %02x)\n",
-		id,
-		x, y, z,
-		r, g, b)
+	/*
+		log.Printf("hello %d -> [%.2f, %.2f, %.2f] (%02x, %02x, %02x)\n",
+			id,
+			x, y, z,
+			r, g, b)
+	*/
 
 	// Don't register if we already know this one.
 	if c.attendees[id] != nil {
@@ -289,7 +294,8 @@ func (c *client) helloAttendee(id uint64, x, y, z float32, r, g, b byte) {
 }
 
 func (c *client) withinRange(pos mgl32.Vec3) bool {
-	return c.camera.Position.Sub(pos).LenSqr() < (far-1)*(far-1)
+	cpos := c.camera.Position
+	return cpos.Sub(pos).Len() < far+1
 }
 
 func (c *client) leaveAttendee(id uint64) {

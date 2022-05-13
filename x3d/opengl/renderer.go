@@ -158,10 +158,11 @@ func (r *Renderer) RenderSpheres(c *Camera, sp *Sphere, positions []SpherePostio
 
 	gl.Enable(gl.CULL_FACE)
 	gl.CullFace(gl.BACK)
-	gl.FrontFace(gl.CW)
+	gl.FrontFace(gl.CCW)
 
 	diff := mgl32.Vec3{0.5, 0.5, 0.5}
 	gl.Uniform3fv(r.state.diffuseColLoc, 1, &diff[0])
+	gl.Uniform1i(r.state.useTextureLoc, 0)
 
 	for i := range positions {
 		vm := rot.Mul4(viewMat).Mul4(
@@ -177,7 +178,6 @@ func (r *Renderer) RenderSpheres(c *Camera, sp *Sphere, positions []SpherePostio
 		gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
 		gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
 		gl.UniformMatrix4fv(r.state.projMatLoc, 1, false, &r.projMat[0])
-		gl.Uniform1i(r.state.useTextureLoc, 0)
 
 		gl.Uniform3fv(r.state.ambientColLoc, 1, &positions[i].Col[0])
 
