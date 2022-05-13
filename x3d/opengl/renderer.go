@@ -167,7 +167,7 @@ func (r *Renderer) RenderSpheres(c *Camera, sp *Sphere, positions []SpherePostio
 		vm := rot.Mul4(viewMat).Mul4(
 			mgl32.Translate3D(
 				positions[i].Pos[0],
-				-positions[i].Pos[1],
+				positions[i].Pos[1],
 				positions[i].Pos[2]))
 
 		//mvMat := vm.Mul4(flip)
