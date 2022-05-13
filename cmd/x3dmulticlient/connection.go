@@ -2,16 +2,19 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"log"
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 type connection struct {
 	con net.Conn
 	out chan string
-	in  chan func(*client)
+	in  chan batch
 }
 
 func newConnection(conS string) (*connection, error) {
@@ -34,7 +37,7 @@ func newConnection(conS string) (*connection, error) {
 	return &connection{
 		con: con,
 		out: make(chan string, 5),
-		in:  make(chan func(*client), 5),
+		in:  make(chan batch),
 	}, nil
 }
 
@@ -53,7 +56,9 @@ func (c *connection) outgoing(done chan struct{}) {
 		case <-done:
 			return
 		case msg := <-c.out:
+			log.Println("outgoing:", msg)
 			if _, err := c.con.Write([]byte(msg)); err != nil {
+				log.Printf("outgoing error: %v\n", err)
 				return
 			}
 		}
@@ -64,39 +69,26 @@ func (c *connection) incoming(done chan struct{}) {
 
 	defer c.con.Close()
 
-	in := make(chan string)
+	raw := make(chan string)
 
 	go func() {
+		defer close(raw)
 		sc := bufio.NewScanner(c.con)
 		for sc.Scan() {
-			in <- sc.Text()
+			//log.Println("raw:", sc.Text())
+			raw <- sc.Text()
 		}
-		close(in)
 	}()
 
-	for {
-		var ok bool
-		var msg string
-		select {
-		case <-done:
-			return
-		case msg, ok = <-in:
-			if !ok {
-				return
-			}
-		}
-		if fn := dispatchMessage(msg); fn != nil {
-			select {
-			case <-done:
-				return
-			case c.in <- fn:
-			}
-		}
-	}
+	batching(raw, c.in, dispatchMessage)
 }
 
 func (c *connection) send(msg string) {
 	c.out <- msg
+}
+
+func (c *connection) sendPos(id uint64, pos mgl32.Vec3) {
+	c.send(fmt.Sprintf("p %x %f %f %f\n", id, pos[0], pos[1], pos[2]))
 }
 
 func dispatchMessage(msg string) func(*client) {

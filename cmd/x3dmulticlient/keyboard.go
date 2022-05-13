@@ -20,31 +20,37 @@ func (c *client) resize() {
 func (c *client) forward() {
 	c.camera.Forward(stepWidth)
 	c.dirty = true
+	c.connection.sendPos(c.userID, c.camera.Position)
 }
 
 func (c *client) strafeLeft() {
 	c.camera.StrafeLeft(stepWidth)
 	c.dirty = true
+	c.connection.sendPos(c.userID, c.camera.Position)
 }
 
 func (c *client) backward() {
 	c.camera.Backward(stepWidth)
 	c.dirty = true
+	c.connection.sendPos(c.userID, c.camera.Position)
 }
 
 func (c *client) strafeRight() {
 	c.camera.StrafeRight(stepWidth)
 	c.dirty = true
+	c.connection.sendPos(c.userID, c.camera.Position)
 }
 
 func (c *client) up() {
 	c.camera.Up(stepWidth)
 	c.dirty = true
+	c.connection.sendPos(c.userID, c.camera.Position)
 }
 
 func (c *client) down() {
 	c.camera.Down(stepWidth)
 	c.dirty = true
+	c.connection.sendPos(c.userID, c.camera.Position)
 }
 
 func (c *client) rotateLeft() {
@@ -105,5 +111,5 @@ func keyboardConvert(ev tcell.Event) func(*client) {
 			return (*client).rotateDown
 		}
 	}
-	return func(*client) {}
+	return nil
 }

@@ -54,6 +54,8 @@ type client struct {
 
 	frameDuration time.Duration
 	termDuration  time.Duration
+
+	attendees map[uint64]*attendee
 }
 
 func startClient(
@@ -77,6 +79,7 @@ func startClient(
 		screen:     screen,
 		userID:     userID,
 		connection: con,
+		attendees:  make(map[uint64]*attendee),
 	}
 
 	log.Printf("connection: %s\n", connection)
@@ -217,13 +220,19 @@ func (c *client) run() error {
 			c.dirty = false
 			c.render()
 		}
-		//log.Println("B: waiting for cooked")
-		k, ok := <-keys
-		//log.Println("B: recieved cooked", ok)
-		if !ok {
-			break
+		select {
+		case k, ok := <-keys:
+			if !ok {
+				break
+			}
+			k.run(c)
+
+		case m, ok := <-c.connection.in:
+			if !ok {
+				break
+			}
+			m.run(c)
 		}
-		k.run(c)
 	}
 
 	// TODO: This should block.
@@ -239,20 +248,32 @@ func (c *client) moveObject(id uint64, x, y, z float32) {
 }
 
 func (c *client) helloObject(id uint64, x, y, z float32, r, g, b byte) {
-	// TODO: Implement me!
+
 	log.Printf("hello object: %d -> [%.2f, %.2f, %.2f] (%02x, %02x, %02x)\n",
 		id,
 		x, y, z,
 		r, g, b)
 
+	att := c.attendees[id]
+	if att != nil {
+		return
+	}
+
+	c.attendees[id] = &attendee{
+		pos: mgl32.Vec3{x, y, z},
+		col: mgl32.Vec3{float32(r) / 255, float32(g) / 255, float32(b) / 255},
+	}
+
 	// introduce ourself
 	c.connection.send(fmt.Sprintf("h %x %f %f %f %x %x %x\n",
 		c.userID,
-		0, 0, 0,
+		0.0, 0.0, 0.0,
 		0, 0, 0))
 }
 
 func (c *client) leavObject(id uint64) {
 	// TODO: Implement me!
 	log.Printf("leave object: %d\n", id)
+	delete(c.attendees, id)
+	log.Printf("attendees left: %d\n", len(c.attendees)+1)
 }

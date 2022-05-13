@@ -20,7 +20,11 @@ func batching[T any](
 		if !ok {
 			break
 		}
-		as := batch{convert(x)}
+		fn := convert(x)
+		if fn == nil {
+			continue
+		}
+		as := batch{fn}
 	send:
 		for {
 			select {

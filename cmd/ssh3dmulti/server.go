@@ -39,6 +39,7 @@ func (s *server) broadcast(msg string, src net.Conn) {
 	s.cmds <- func(s *server) {
 		for con, out := range s.cons {
 			if con != src {
+				//log.Println("broadcast:", msg)
 				out <- msg
 			}
 		}
@@ -55,7 +56,9 @@ func (s *server) closeCon(con net.Conn) {
 
 func (s *server) send(con net.Conn, out <-chan string) {
 	for msg := range out {
-		if _, err := con.Write([]byte(msg)); err != nil {
+		//log.Println("send:", msg)
+		if _, err := con.Write(append([]byte(msg), '\n')); err != nil {
+			log.Printf("send error: %v\n", err)
 			s.closeCon(con)
 		}
 	}
