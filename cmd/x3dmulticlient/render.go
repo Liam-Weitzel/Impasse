@@ -54,26 +54,22 @@ func (c *client) render() {
 			len(css), len(vis), fb.Radius, camera.Position)
 	*/
 	c.renderer.RenderShapes(c.camera, c.visibleShapes)
-	pos := c.scene.Viewpoints[0].Position
-	//pos[1] = -pos[1]
 
 	if len(c.attendees) > 0 {
-
-		spheres := make([]opengl.SpherePostion, 0, len(c.attendees))
-
 		for _, att := range c.attendees {
-			apos := att.pos
-			apos[1] = -1
-			visible := apos.Sub(pos).Len() < far+1
-			if visible {
-				spheres = append(spheres, opengl.SpherePostion{
-					Pos: att.pos,
-					Col: att.col,
-				})
+			if c.withinRange(att.pos) {
+				c.visibleAttendees = append(c.visibleAttendees,
+					opengl.SpherePostion{
+						Pos: att.pos,
+						Col: att.col,
+					})
 			}
 		}
-
-		c.renderer.RenderSpheres(c.camera, c.sphere, spheres)
+		if len(c.visibleAttendees) > 0 {
+			c.renderer.RenderSpheres(
+				c.camera, c.sphere, c.visibleAttendees)
+			c.visibleAttendees = c.visibleAttendees[:0]
+		}
 	}
 
 	c.renderer.ReadImage(c.renderedImage)

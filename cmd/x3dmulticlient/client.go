@@ -42,8 +42,9 @@ type client struct {
 
 	textureCache *opengl.TextureCache
 
-	shapes        []*opengl.CompiledShape
-	visibleShapes []*opengl.CompiledShape
+	shapes           []*opengl.CompiledShape
+	visibleShapes    []*opengl.CompiledShape
+	visibleAttendees []opengl.SpherePostion
 
 	camera   *opengl.Camera
 	renderer *opengl.Renderer
@@ -295,7 +296,7 @@ func (c *client) helloAttendee(id uint64, x, y, z float32, r, g, b byte) {
 
 func (c *client) withinRange(pos mgl32.Vec3) bool {
 	cpos := c.camera.Position
-	return cpos.Sub(pos).Len() < far+1
+	return cpos.Sub(pos).LenSqr() < (far+1)*(far+1)
 }
 
 func (c *client) leaveAttendee(id uint64) {
