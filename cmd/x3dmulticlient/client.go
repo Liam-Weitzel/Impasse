@@ -56,6 +56,7 @@ type client struct {
 	termDuration  time.Duration
 
 	attendees map[uint64]*attendee
+	color     mgl32.Vec3
 }
 
 func startClient(
@@ -177,18 +178,11 @@ func (c *client) run() error {
 	vp := c.scene.Viewpoints[vpN]
 
 	r, g, b := gfx.RandomColor(rnd)
-
-	log.Printf("color: [r: %d, g: %d, b: %d]\n", r, g, b)
+	c.color = mgl32.Vec3{float32(r) / 255, float32(g) / 255, float32(b) / 255}
 
 	p := vp.Position
 	//p[0], p[2] = p[2], p[0]
 	p[1] = -p[1]
-
-	// introduce ourself
-	c.connection.send(fmt.Sprintf("h %x %f %f %f %x %x %x\n",
-		c.userID,
-		p[0], p[1], p[2],
-		r, g, b))
 
 	angle := vp.Orientation[3]
 
@@ -203,7 +197,10 @@ func (c *client) run() error {
 		Angle:    angle,
 	}
 
-	//log.Printf("sphere: %v\n", bs.Center)
+	// introduce ourself
+	c.connection.sendHello(c.userID, p, c.color)
+
+	// Keybord handling.
 
 	eventsDone := make(chan struct{})
 	defer close(eventsDone)
@@ -236,43 +233,66 @@ func (c *client) run() error {
 	}
 
 	// TODO: This should block.
-	c.connection.send(
-		fmt.Sprintf("l %x\n", c.userID))
+	c.connection.sendLeave(c.userID)
 
 	return nil
 }
 
-func (c *client) moveObject(id uint64, x, y, z float32) {
-	// TODO: Implement me!
-	log.Printf("move object: %d -> [%.2f, %.2f, %.2f]\n", id, x, y, z)
+func (c *client) moveAttendee(id uint64, x, y, z float32) {
+	log.Printf("move %d -> [%.2f, %.2f, %.2f]\n", id, x, y, z)
+	att := c.attendees[id]
+	if att == nil {
+		return
+	}
+	wasVisible := c.withinRange(att.pos)
+	att.pos = mgl32.Vec3{x, y, z}
+	if wasVisible || c.withinRange(att.pos) {
+		c.dirty = true
+	}
 }
 
-func (c *client) helloObject(id uint64, x, y, z float32, r, g, b byte) {
+func (c *client) helloAttendee(id uint64, x, y, z float32, r, g, b byte) {
 
-	log.Printf("hello object: %d -> [%.2f, %.2f, %.2f] (%02x, %02x, %02x)\n",
+	log.Printf("hello %d -> [%.2f, %.2f, %.2f] (%02x, %02x, %02x)\n",
 		id,
 		x, y, z,
 		r, g, b)
 
-	att := c.attendees[id]
-	if att != nil {
+	// Don't register if we already know this one.
+	if c.attendees[id] != nil {
 		return
 	}
 
+	pos := mgl32.Vec3{x, y, z}
+
 	c.attendees[id] = &attendee{
-		pos: mgl32.Vec3{x, y, z},
+		pos: pos,
 		col: mgl32.Vec3{float32(r) / 255, float32(g) / 255, float32(b) / 255},
 	}
 
 	// introduce ourself
-	c.connection.send(fmt.Sprintf("h %x %f %f %f %x %x %x\n",
+	c.connection.sendHello(
 		c.userID,
-		0.0, 0.0, 0.0,
-		0, 0, 0))
+		c.camera.Position,
+		c.color)
+
+	if c.withinRange(pos) {
+		c.dirty = true
+	}
 }
 
-func (c *client) leavObject(id uint64) {
-	// TODO: Implement me!
+func (c *client) withinRange(pos mgl32.Vec3) bool {
+	return c.camera.Position.Sub(pos).LenSqr() < (far-1)*(far-1)
+}
+
+func (c *client) leaveAttendee(id uint64) {
+	att := c.attendees[id]
+	if att == nil {
+		return
+	}
+	if c.withinRange(att.pos) {
+		c.dirty = true
+	}
 	log.Printf("leave object: %d\n", id)
 	delete(c.attendees, id)
 	log.Printf("attendees left: %d\n", len(c.attendees)+1)

@@ -91,6 +91,17 @@ func (c *connection) sendPos(id uint64, pos mgl32.Vec3) {
 	c.send(fmt.Sprintf("p %x %f %f %f\n", id, pos[0], pos[1], pos[2]))
 }
 
+func (c *connection) sendHello(id uint64, pos, col mgl32.Vec3) {
+	c.send(fmt.Sprintf("h %x %f %f %f %x %x %x\n",
+		id,
+		pos[0], pos[1], pos[2],
+		byte(col[0]*255), byte(col[1]*255), byte(col[2]*255)))
+}
+
+func (c *connection) sendLeave(id uint64) {
+	c.send(fmt.Sprintf("l %x\n", id))
+}
+
 func dispatchMessage(msg string) func(*client) {
 	fields := strings.Fields(msg)
 	if len(fields) == 0 {
@@ -134,7 +145,7 @@ func position(fields []string) func(*client) {
 		return nil
 	}
 	return func(c *client) {
-		c.moveObject(id, float32(x), float32(y), float32(z))
+		c.moveAttendee(id, float32(x), float32(y), float32(z))
 	}
 }
 
@@ -182,7 +193,7 @@ func hello(fields []string) func(*client) {
 	}
 
 	return func(c *client) {
-		c.helloObject(
+		c.helloAttendee(
 			id,
 			float32(x), float32(y), float32(z),
 			byte(r), byte(g), byte(b))
@@ -199,5 +210,5 @@ func leave(fields []string) func(*client) {
 		log.Printf("leave: id invalid: %v\n", err)
 		return nil
 	}
-	return func(c *client) { c.leavObject(id) }
+	return func(c *client) { c.leaveAttendee(id) }
 }
