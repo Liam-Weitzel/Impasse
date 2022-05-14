@@ -22,9 +22,9 @@ import (
 const (
 	displayWidth  = 640
 	displayHeight = 400
-	fov           = 70
-	near          = 1
-	far           = 1500
+	//fov           = 70
+	near = 1
+	far  = 1500
 )
 
 type client struct {
@@ -148,6 +148,16 @@ func (c *client) run() error {
 	//ambientCol := mgl32.Vec3{0.15, 0.15, 0.15}
 	ambientCol := mgl32.Vec3{0.75, 0.75, 0.75}
 	//ambientCol := mgl32.Vec3{1.5, 1.5, 1.5}
+
+	sw, sh := c.screen.Size()
+	rw, rh := sw*4, sh*8
+
+	aspect := float32(rw) / float32(rh)
+
+	fov := gfx.AspectRatioToFOV(aspect)
+
+	log.Printf("render size: %d x %d\n", rw, rh)
+	log.Printf("aspect: %f / fov: %f\n", aspect, fov)
 
 	/*
 
