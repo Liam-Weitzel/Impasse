@@ -1,10 +1,8 @@
 package main
 
 import (
-	"image"
 	"time"
 
-	"github.com/bamiaux/rez"
 	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d/opengl"
@@ -28,9 +26,6 @@ func (c *client) compileShapes() error {
 }
 
 func (c *client) render() {
-	if c.renderedImage == nil {
-		c.renderedImage = image.NewRGBA(image.Rect(0, 0, displayWidth, displayHeight))
-	}
 
 	if c.visibleShapes == nil {
 		c.visibleShapes = make([]*opengl.CompiledShape, 0, len(c.shapes))
@@ -77,16 +72,19 @@ func (c *client) render() {
 	c.visibleShapes = c.visibleShapes[:0]
 	t1 := time.Now()
 
-	swidth, sheight := c.screen.Size()
-	sdim := image.Rect(0, 0, 4*swidth, 8*sheight)
+	/*
 
-	if c.canvas == nil || !c.canvas.Bounds().Eq(sdim) {
-		c.canvas = image.NewRGBA(sdim)
-	}
+		swidth, sheight := c.screen.Size()
+		sdim := image.Rect(0, 0, 4*swidth, 8*sheight)
 
-	rez.Convert(c.canvas, c.renderedImage, rez.NewBilinearFilter())
+		if c.canvas == nil || !c.canvas.Bounds().Eq(sdim) {
+			c.canvas = image.NewRGBA(sdim)
+		}
 
-	gfx.BlitRunes(c.screen, c.canvas, false)
+		rez.Convert(c.canvas, c.renderedImage, rez.NewBilinearFilter())
+	*/
+
+	gfx.BlitRunes(c.screen, c.renderedImage, false)
 
 	c.drawHUD()
 

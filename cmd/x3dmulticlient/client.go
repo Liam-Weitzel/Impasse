@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	displayWidth  = 640
-	displayHeight = 400
+	//displayWidth  = 640
+	//displayHeight = 400
 	//fov           = 70
 	near = 1
 	far  = 1500
@@ -138,13 +138,6 @@ func (c *client) run() error {
 		return errors.New("no viewpoints defined")
 	}
 
-	fbo, fboFree, err := opengl.CreateFrameBuffer(displayWidth, displayHeight)
-	if err != nil {
-		return err
-	}
-	defer fboFree()
-	gl.BindFramebuffer(gl.FRAMEBUFFER, fbo)
-
 	//ambientCol := mgl32.Vec3{0.15, 0.15, 0.15}
 	ambientCol := mgl32.Vec3{0.75, 0.75, 0.75}
 	//ambientCol := mgl32.Vec3{1.5, 1.5, 1.5}
@@ -159,20 +152,19 @@ func (c *client) run() error {
 	log.Printf("render size: %d x %d\n", rw, rh)
 	log.Printf("aspect: %f / fov: %f\n", aspect, fov)
 
-	/*
+	fbo, fboFree, err := opengl.CreateFrameBuffer(int32(rw), int32(rh))
+	if err != nil {
+		return err
+	}
+	defer fboFree()
+	gl.BindFramebuffer(gl.FRAMEBUFFER, fbo)
+	gl.Viewport(0, 0, int32(rw), int32(rh))
 
-		bs := x3d.FrustumSphere(
-			displayWidth, displayHeight,
-			near, far,
-			mgl32.DegToRad(fov))
-
-		bs.Radius *= bs.Radius
-
-	*/
+	c.renderedImage = image.NewRGBA(image.Rect(0, 0, rw, rh))
 
 	projMat := mgl32.Perspective(
 		mgl32.DegToRad(fov),
-		float32(displayWidth)/displayHeight,
+		float32(rw)/float32(rh),
 		near, far)
 
 	c.renderer, err = opengl.NewRenderer(ambientCol, projMat)

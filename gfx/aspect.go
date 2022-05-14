@@ -28,9 +28,8 @@ func AspectRatioToFOV(ar float32) float32 {
 
 	if fov < 90 {
 		fov = 90
-	}
-	if fov > 130 {
-		fov = 130
+	} else if fov > 95 {
+		fov = 95
 	}
 
 	return fov
