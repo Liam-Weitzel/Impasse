@@ -56,7 +56,8 @@ func createVBO(vertices []Vertex) (uint32, error) {
 
 	gl.GenBuffers(nBuffers, &vbo)
 
-	bindVBO(vbo)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
+	//bindVBO(vbo)
 
 	gl.BufferData(
 		gl.ARRAY_BUFFER,

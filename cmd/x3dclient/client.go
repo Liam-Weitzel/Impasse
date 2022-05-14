@@ -201,7 +201,8 @@ func (c *client) run() error {
 			log.Printf("total: %d vis: %d radius: %f pos: %v\n",
 				len(css), len(vis), fb.Radius, camera.Position)
 		*/
-		renderer.Render(camera, vis, out)
+		renderer.RenderShapes(camera, vis)
+		renderer.ReadImage(out)
 		vis = vis[:0]
 		t1 := time.Now()
 
