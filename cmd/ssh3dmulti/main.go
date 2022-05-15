@@ -44,7 +44,11 @@ func (h *handler) sshHandle(s ssh.Session) {
 		cmdCtx, h.renderer,
 		h.args...)
 
-	cmd.Env = append(s.Environ(),
+	env := s.Environ()
+
+	log.Printf("env: %v\n", env)
+
+	cmd.Env = append(env,
 		fmt.Sprintf("TERM=%s", ptyReq.Term),
 		fmt.Sprintf("SSH3D_CONNECTION=%s", h.server.connection),
 		fmt.Sprintf("SSH3D_ID=%d", h.server.newID()))
