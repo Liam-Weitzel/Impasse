@@ -20,11 +20,10 @@ import (
 )
 
 const (
-	displayWidth  = 640
-	displayHeight = 400
-	//fov           = 70
-	near = 1
-	far  = 1500
+	maxWidth  = 1360
+	maxHeight = 768
+	near      = 1
+	far       = 1500
 )
 
 type client struct {
@@ -49,9 +48,10 @@ type client struct {
 	camera   *opengl.Camera
 	renderer *opengl.Renderer
 
+	fbo           uint32
+	freeFBO       func()
 	renderedImage *image.RGBA
-
-	canvas *image.RGBA
+	canvas        *image.RGBA
 
 	frameDuration time.Duration
 	termDuration  time.Duration
@@ -62,6 +62,22 @@ type client struct {
 	rnd *rand.Rand
 
 	sphere *opengl.Sphere
+}
+
+func (c *client) allocFrameBuffer(w, h int) error {
+
+	var err error
+	if c.fbo, c.freeFBO, err = opengl.CreateFrameBuffer(
+		int32(w), int32(h)); err != nil {
+		return err
+	}
+
+	c.renderedImage = image.NewRGBA(image.Rect(0, 0, w, h))
+
+	gl.BindFramebuffer(gl.FRAMEBUFFER, c.fbo)
+	gl.Viewport(0, 0, int32(w), int32(h))
+
+	return nil
 }
 
 func startClient(
@@ -132,54 +148,71 @@ func (c *client) drawHUD() {
 
 }
 
+func fit(w, h int) bool {
+	return w <= maxWidth && h <= maxHeight
+}
+
+func aspectScale(x int, aspect float32) int {
+	return int(math.Ceil(float64(float32(x) * aspect)))
+}
+
+func fitSize(w, h int) (float32, int, int) {
+	aspect := float32(w) / float32(h)
+
+	if fit(w, h) {
+		return aspect, w, h
+	}
+
+	c1w, c1h := maxWidth, aspectScale(maxWidth, 1/aspect)
+	c2w, c2h := aspectScale(maxHeight, aspect), maxHeight
+
+	c1f := fit(c1w, c1h)
+	c2f := fit(c2w, c2h)
+
+	if c1f && c2f {
+		if c1w*c1h > c2w*c2h {
+			return aspect, c1w, c1h
+		}
+		return aspect, c2w, c2h
+	}
+
+	if c1f {
+		return aspect, c1w, c1h
+	}
+	return aspect, c2w, c2h
+}
+
 func (c *client) run() error {
 
 	if len(c.scene.Viewpoints) == 0 {
 		return errors.New("no viewpoints defined")
 	}
 
-	fbo, fboFree, err := opengl.CreateFrameBuffer(displayWidth, displayHeight)
-	if err != nil {
+	ambientCol := mgl32.Vec3{0.75, 0.75, 0.75}
+
+	var err error
+	if c.renderer, err = opengl.NewRenderer(ambientCol); err != nil {
 		return err
 	}
-	defer fboFree()
-	gl.BindFramebuffer(gl.FRAMEBUFFER, fbo)
-
-	//ambientCol := mgl32.Vec3{0.15, 0.15, 0.15}
-	ambientCol := mgl32.Vec3{0.75, 0.75, 0.75}
-	//ambientCol := mgl32.Vec3{1.5, 1.5, 1.5}
+	defer c.renderer.Delete()
 
 	sw, sh := c.screen.Size()
-	rw, rh := sw*4, sh*8
-
-	aspect := float32(rw) / float32(rh)
+	aspect, rw, rh := fitSize(sw*4, sh*8)
 
 	fov := gfx.AspectRatioToFOV(aspect)
 
 	log.Printf("render size: %d x %d\n", rw, rh)
 	log.Printf("aspect: %f / fov: %f\n", aspect, fov)
 
-	/*
-
-		bs := x3d.FrustumSphere(
-			displayWidth, displayHeight,
-			near, far,
-			mgl32.DegToRad(fov))
-
-		bs.Radius *= bs.Radius
-
-	*/
-
-	projMat := mgl32.Perspective(
+	c.renderer.ProjMat = mgl32.Perspective(
 		mgl32.DegToRad(fov),
-		float32(displayWidth)/displayHeight,
+		aspect,
 		near, far)
 
-	c.renderer, err = opengl.NewRenderer(ambientCol, projMat)
-	if err != nil {
+	if err := c.allocFrameBuffer(rw, rh); err != nil {
 		return err
 	}
-	defer c.renderer.Delete()
+	defer func() { c.freeFBO() }()
 
 	if c.sphere, err = opengl.NewSphere(15, 16, 16, false); err != nil {
 		return err

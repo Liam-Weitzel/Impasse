@@ -28,9 +28,6 @@ func (c *client) compileShapes() error {
 }
 
 func (c *client) render() {
-	if c.renderedImage == nil {
-		c.renderedImage = image.NewRGBA(image.Rect(0, 0, displayWidth, displayHeight))
-	}
 
 	if c.visibleShapes == nil {
 		c.visibleShapes = make([]*opengl.CompiledShape, 0, len(c.shapes))
@@ -80,13 +77,19 @@ func (c *client) render() {
 	swidth, sheight := c.screen.Size()
 	sdim := image.Rect(0, 0, 4*swidth, 8*sheight)
 
-	if c.canvas == nil || !c.canvas.Bounds().Eq(sdim) {
-		c.canvas = image.NewRGBA(sdim)
+	var src *image.RGBA
+
+	if !c.renderedImage.Bounds().Eq(sdim) {
+		if c.canvas == nil || !c.canvas.Bounds().Eq(sdim) {
+			c.canvas = image.NewRGBA(sdim)
+		}
+		rez.Convert(c.canvas, c.renderedImage, rez.NewBilinearFilter())
+		src = c.canvas
+	} else {
+		src = c.renderedImage
 	}
 
-	rez.Convert(c.canvas, c.renderedImage, rez.NewBilinearFilter())
-
-	gfx.BlitRunes(c.screen, c.canvas, false)
+	gfx.BlitRunes(c.screen, src, false)
 
 	c.drawHUD()
 

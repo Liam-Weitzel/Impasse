@@ -29,10 +29,10 @@ func batching[T any](
 		for {
 			select {
 			case x := <-in:
-				//log.Println("A: second event")
-				as = append(as, convert(x))
+				if fn := convert(x); fn != nil {
+					as = append(as, fn)
+				}
 			case out <- as:
-				//log.Println("A: send success")
 				break send
 			}
 		}

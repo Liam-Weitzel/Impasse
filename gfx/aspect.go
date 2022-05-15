@@ -2,6 +2,8 @@ package gfx
 
 func AspectRatioToFOV(ar float32) float32 {
 
+	return 60
+
 	const (
 		_4_3  = float32(4) / 3
 		_16_9 = float32(16) / 9
@@ -28,9 +30,8 @@ func AspectRatioToFOV(ar float32) float32 {
 
 	if fov < 90 {
 		fov = 90
-	}
-	if fov > 130 {
-		fov = 130
+	} else if fov > 95 {
+		fov = 95
 	}
 
 	return fov

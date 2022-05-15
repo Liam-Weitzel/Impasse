@@ -37,10 +37,10 @@ type Renderer struct {
 	state      *State
 	program    uint32
 	ambientCol mgl32.Vec3
-	projMat    mgl32.Mat4
+	ProjMat    mgl32.Mat4
 }
 
-func NewRenderer(ambientCol mgl32.Vec3, projMat mgl32.Mat4) (*Renderer, error) {
+func NewRenderer(ambientCol mgl32.Vec3) (*Renderer, error) {
 
 	program, err := CreateProgram(vertexSrc, fragSrc)
 	if err != nil {
@@ -65,7 +65,6 @@ func NewRenderer(ambientCol mgl32.Vec3, projMat mgl32.Mat4) (*Renderer, error) {
 		state:      s,
 		program:    program,
 		ambientCol: ambientCol,
-		projMat:    projMat,
 	}, nil
 }
 
@@ -119,7 +118,7 @@ func (r *Renderer) RenderShapes(c *Camera, css []*CompiledShape) {
 
 	gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
 	gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
-	gl.UniformMatrix4fv(r.state.projMatLoc, 1, false, &r.projMat[0])
+	gl.UniformMatrix4fv(r.state.projMatLoc, 1, false, &r.ProjMat[0])
 	gl.Uniform1i(r.state.useTextureLoc, 1)
 
 	// Head light
@@ -177,7 +176,7 @@ func (r *Renderer) RenderSpheres(c *Camera, sp *Sphere, positions []SpherePostio
 
 		gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
 		gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
-		gl.UniformMatrix4fv(r.state.projMatLoc, 1, false, &r.projMat[0])
+		gl.UniformMatrix4fv(r.state.projMatLoc, 1, false, &r.ProjMat[0])
 
 		gl.Uniform3fv(r.state.ambientColLoc, 1, &positions[i].Col[0])
 
