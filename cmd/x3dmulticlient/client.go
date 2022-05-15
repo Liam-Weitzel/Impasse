@@ -204,6 +204,16 @@ func (c *client) run() error {
 	log.Printf("render size: %d x %d\n", rw, rh)
 	log.Printf("aspect: %f / fov: %f\n", aspect, fov)
 
+	fbo, fboFree, err := opengl.CreateFrameBuffer(int32(rw), int32(rh))
+	if err != nil {
+		return err
+	}
+	defer fboFree()
+	gl.BindFramebuffer(gl.FRAMEBUFFER, fbo)
+	gl.Viewport(0, 0, int32(rw), int32(rh))
+
+	c.renderedImage = image.NewRGBA(image.Rect(0, 0, rw, rh))
+
 	c.renderer.ProjMat = mgl32.Perspective(
 		mgl32.DegToRad(fov),
 		aspect,

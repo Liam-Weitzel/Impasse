@@ -76,7 +76,6 @@ func (c *client) render() {
 
 	swidth, sheight := c.screen.Size()
 	sdim := image.Rect(0, 0, 4*swidth, 8*sheight)
-
 	var src *image.RGBA
 
 	if !c.renderedImage.Bounds().Eq(sdim) {
