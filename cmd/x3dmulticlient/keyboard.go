@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"math"
 
 	"github.com/gdamore/tcell/v2"
@@ -16,7 +17,38 @@ func (c *client) doQuit() { c.quit = true }
 
 func (c *client) resize() {
 	c.screen.Sync()
+
+	sw, sh := c.screen.Size()
+	aspect, rw, rh := fitSize(sw*4, sh*8)
+
+	c.freeFBO()
+	if err := c.allocFrameBuffer(rw, rh); err != nil {
+		log.Fatalf("Allocating framebuffer failed: %v\n", err)
+	}
+
+	c.updateProjection(aspect)
+
 	c.dirty = true
+}
+
+func (c *client) incFOV() {
+	if c.fov < maxFOV {
+		if c.fov += 5; c.fov > maxFOV {
+			c.fov = maxFOV
+		}
+		c.updateProjectionScreen()
+		c.dirty = true
+	}
+}
+
+func (c *client) decFOV() {
+	if c.fov > minFOV {
+		if c.fov -= 5; c.fov < minFOV {
+			c.fov = minFOV
+		}
+		c.updateProjectionScreen()
+		c.dirty = true
+	}
 }
 
 func (c *client) forward() {
@@ -118,6 +150,10 @@ func keyboardConvert(ev tcell.Event) func(*client) {
 				return (*client).down
 			case 'r':
 				return (*client).randomPos
+			case '+':
+				return (*client).incFOV
+			case '-':
+				return (*client).decFOV
 			}
 		case tcell.KeyUp:
 			return (*client).forward

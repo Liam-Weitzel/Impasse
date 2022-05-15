@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 	gl "github.com/go-gl/gl/v3.0/gles2"
@@ -16,15 +17,15 @@ import (
 	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d/opengl"
-	//_ "github.com/gdamore/v2/terminfo/extended"
 )
 
 const (
-	displayWidth  = 640
-	displayHeight = 400
-	fov           = 70
-	near          = 1
-	far           = 1500
+	far        = 1300
+	nearPlane  = 0.1
+	farPlane   = 4096
+	minFOV     = 60
+	maxFOV     = 110
+	defaultFOV = minFOV
 )
 
 type client struct {
@@ -46,12 +47,14 @@ type client struct {
 	visibleShapes    []*opengl.CompiledShape
 	visibleAttendees []opengl.SpherePostion
 
+	fov      float32
 	camera   *opengl.Camera
 	renderer *opengl.Renderer
 
+	fbo           uint32
+	freeFBO       func()
 	renderedImage *image.RGBA
-
-	canvas *image.RGBA
+	canvas        *image.RGBA
 
 	frameDuration time.Duration
 	termDuration  time.Duration
@@ -62,6 +65,22 @@ type client struct {
 	rnd *rand.Rand
 
 	sphere *opengl.Sphere
+}
+
+func (c *client) allocFrameBuffer(w, h int) error {
+
+	var err error
+	if c.fbo, c.freeFBO, err = opengl.CreateFrameBuffer(
+		int32(w), int32(h)); err != nil {
+		return err
+	}
+
+	c.renderedImage = image.NewRGBA(image.Rect(0, 0, w, h))
+
+	gl.BindFramebuffer(gl.FRAMEBUFFER, c.fbo)
+	gl.Viewport(0, 0, int32(w), int32(h))
+
+	return nil
 }
 
 func startClient(
@@ -80,6 +99,7 @@ func startClient(
 
 	c := &client{
 		scene:      scene,
+		fov:        defaultFOV,
 		directory:  directory,
 		window:     window,
 		screen:     screen,
@@ -123,13 +143,17 @@ func (c *client) drawHUD() {
 		"ESC: Quit|Cursor/WASD: Move|PgUp/PgD: Look up/down|SPACE/C: Up/Down|R: Random Position",
 		st)
 
-	_, height := c.screen.Size()
+	width, height := c.screen.Size()
 
 	gfx.WriteString(c.screen, 0, height-1,
 		fmt.Sprintf("Frame time: %.2fms [%.2fms]",
 			float64(c.frameDuration.Microseconds()/1000),
 			float64(c.termDuration.Microseconds())/1000), st)
 
+	fovS := fmt.Sprintf("FOV: +/- [%.2f°]", c.fov)
+	gfx.WriteString(
+		c.screen, width-utf8.RuneCountInString(fovS), height-1,
+		fovS, st)
 }
 
 func (c *client) run() error {
@@ -138,38 +162,23 @@ func (c *client) run() error {
 		return errors.New("no viewpoints defined")
 	}
 
-	fbo, fboFree, err := opengl.CreateFrameBuffer(displayWidth, displayHeight)
-	if err != nil {
-		return err
-	}
-	defer fboFree()
-	gl.BindFramebuffer(gl.FRAMEBUFFER, fbo)
-
-	//ambientCol := mgl32.Vec3{0.15, 0.15, 0.15}
 	ambientCol := mgl32.Vec3{0.75, 0.75, 0.75}
-	//ambientCol := mgl32.Vec3{1.5, 1.5, 1.5}
 
-	/*
-
-		bs := x3d.FrustumSphere(
-			displayWidth, displayHeight,
-			near, far,
-			mgl32.DegToRad(fov))
-
-		bs.Radius *= bs.Radius
-
-	*/
-
-	projMat := mgl32.Perspective(
-		mgl32.DegToRad(fov),
-		float32(displayWidth)/displayHeight,
-		near, far)
-
-	c.renderer, err = opengl.NewRenderer(ambientCol, projMat)
-	if err != nil {
+	var err error
+	if c.renderer, err = opengl.NewRenderer(ambientCol); err != nil {
 		return err
 	}
 	defer c.renderer.Delete()
+
+	sw, sh := c.screen.Size()
+	aspect, rw, rh := fitSize(sw*4, sh*8)
+
+	if err := c.allocFrameBuffer(rw, rh); err != nil {
+		return err
+	}
+	defer func() { c.freeFBO() }()
+
+	c.updateProjection(aspect)
 
 	if c.sphere, err = opengl.NewSphere(15, 16, 16, false); err != nil {
 		return err

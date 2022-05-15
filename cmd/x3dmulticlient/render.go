@@ -2,13 +2,68 @@ package main
 
 import (
 	"image"
+	"math"
 	"time"
 
 	"github.com/bamiaux/rez"
+	"github.com/go-gl/mathgl/mgl32"
 	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d/opengl"
 )
+
+const (
+	maxWidth  = 1360
+	maxHeight = 768
+)
+
+func fit(w, h int) bool {
+	return w <= maxWidth && h <= maxHeight
+}
+
+func aspectScale(x int, aspect float32) int {
+	return int(math.Ceil(float64(float32(x) * aspect)))
+}
+
+func fitSize(w, h int) (float32, int, int) {
+	aspect := float32(w) / float32(h)
+
+	if fit(w, h) {
+		return aspect, w, h
+	}
+
+	c1w, c1h := maxWidth, aspectScale(maxWidth, 1/aspect)
+	c2w, c2h := aspectScale(maxHeight, aspect), maxHeight
+
+	c1f := fit(c1w, c1h)
+	c2f := fit(c2w, c2h)
+
+	if c1f && c2f {
+		if c1w*c1h > c2w*c2h {
+			return aspect, c1w, c1h
+		}
+		return aspect, c2w, c2h
+	}
+
+	if c1f {
+		return aspect, c1w, c1h
+	}
+	return aspect, c2w, c2h
+}
+
+func (c *client) updateProjectionScreen() {
+	bounds := c.renderedImage.Bounds()
+	aspect := float32(bounds.Dx()) / float32(bounds.Dy())
+	c.updateProjection(aspect)
+}
+
+func (c *client) updateProjection(aspect float32) {
+	c.renderer.ProjMat = mgl32.Perspective(
+		mgl32.DegToRad(c.fov),
+		aspect,
+		nearPlane, farPlane)
+
+}
 
 func (c *client) compileShapes() error {
 
@@ -28,9 +83,6 @@ func (c *client) compileShapes() error {
 }
 
 func (c *client) render() {
-	if c.renderedImage == nil {
-		c.renderedImage = image.NewRGBA(image.Rect(0, 0, displayWidth, displayHeight))
-	}
 
 	if c.visibleShapes == nil {
 		c.visibleShapes = make([]*opengl.CompiledShape, 0, len(c.shapes))
@@ -79,14 +131,19 @@ func (c *client) render() {
 
 	swidth, sheight := c.screen.Size()
 	sdim := image.Rect(0, 0, 4*swidth, 8*sheight)
+	var src *image.RGBA
 
-	if c.canvas == nil || !c.canvas.Bounds().Eq(sdim) {
-		c.canvas = image.NewRGBA(sdim)
+	if !c.renderedImage.Bounds().Eq(sdim) {
+		if c.canvas == nil || !c.canvas.Bounds().Eq(sdim) {
+			c.canvas = image.NewRGBA(sdim)
+		}
+		rez.Convert(c.canvas, c.renderedImage, rez.NewBilinearFilter())
+		src = c.canvas
+	} else {
+		src = c.renderedImage
 	}
 
-	rez.Convert(c.canvas, c.renderedImage, rez.NewBilinearFilter())
-
-	gfx.BlitRunes(c.screen, c.canvas, false)
+	gfx.BlitRunes(c.screen, src, false)
 
 	c.drawHUD()
 

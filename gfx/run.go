@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	displayWidth  = 640
-	displayHeight = 400
+	displayWidth  = 1
+	displayHeight = 1
 )
 
 func WrapScreen(fn func(tcell.Screen) error) error {
