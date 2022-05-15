@@ -135,11 +135,12 @@ func (c *client) run() error {
 		float32(displayWidth)/displayHeight,
 		near, far)
 
-	renderer, err := opengl.NewRenderer(ambientCol, projMat)
+	renderer, err := opengl.NewRenderer(ambientCol)
 	if err != nil {
 		return err
 	}
 	defer renderer.Delete()
+	renderer.ProjMat = projMat
 
 	log.Printf("num shapes: %d\n", len(c.scene.Shapes))
 
