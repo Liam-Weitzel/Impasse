@@ -51,6 +51,12 @@ func fitSize(w, h int) (float32, int, int) {
 	return aspect, c2w, c2h
 }
 
+func (c *client) updateProjectionScreen() {
+	bounds := c.renderedImage.Bounds()
+	aspect := float32(bounds.Dx()) / float32(bounds.Dy())
+	c.updateProjection(aspect)
+}
+
 func (c *client) updateProjection(aspect float32) {
 	c.renderer.ProjMat = mgl32.Perspective(
 		mgl32.DegToRad(c.fov),

@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 	gl "github.com/go-gl/gl/v3.0/gles2"
@@ -16,14 +17,15 @@ import (
 	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d/opengl"
-	//_ "github.com/gdamore/v2/terminfo/extended"
 )
 
 const (
 	far        = 1300
 	nearPlane  = 0.1
 	farPlane   = 4096
-	defaultFOV = 60
+	minFOV     = 60
+	maxFOV     = 110
+	defaultFOV = minFOV
 )
 
 type client struct {
@@ -141,13 +143,17 @@ func (c *client) drawHUD() {
 		"ESC: Quit|Cursor/WASD: Move|PgUp/PgD: Look up/down|SPACE/C: Up/Down|R: Random Position",
 		st)
 
-	_, height := c.screen.Size()
+	width, height := c.screen.Size()
 
 	gfx.WriteString(c.screen, 0, height-1,
 		fmt.Sprintf("Frame time: %.2fms [%.2fms]",
 			float64(c.frameDuration.Microseconds()/1000),
 			float64(c.termDuration.Microseconds())/1000), st)
 
+	fovS := fmt.Sprintf("FOV: +/- [%.2f°]", c.fov)
+	gfx.WriteString(
+		c.screen, width-utf8.RuneCountInString(fovS), height-1,
+		fovS, st)
 }
 
 func (c *client) run() error {

@@ -31,6 +31,26 @@ func (c *client) resize() {
 	c.dirty = true
 }
 
+func (c *client) incFOV() {
+	if c.fov < maxFOV {
+		if c.fov += 5; c.fov > maxFOV {
+			c.fov = maxFOV
+		}
+		c.updateProjectionScreen()
+		c.dirty = true
+	}
+}
+
+func (c *client) decFOV() {
+	if c.fov > minFOV {
+		if c.fov -= 5; c.fov < minFOV {
+			c.fov = minFOV
+		}
+		c.updateProjectionScreen()
+		c.dirty = true
+	}
+}
+
 func (c *client) forward() {
 	c.camera.Forward(stepWidth)
 	c.dirty = true
@@ -130,6 +150,10 @@ func keyboardConvert(ev tcell.Event) func(*client) {
 				return (*client).down
 			case 'r':
 				return (*client).randomPos
+			case '+':
+				return (*client).incFOV
+			case '-':
+				return (*client).decFOV
 			}
 		case tcell.KeyUp:
 			return (*client).forward
