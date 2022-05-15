@@ -35,7 +35,7 @@ func (c *client) resize() {
 	c.renderer.ProjMat = mgl32.Perspective(
 		mgl32.DegToRad(fov),
 		aspect,
-		near, far)
+		nearPlane, farPlane)
 
 	c.dirty = true
 }

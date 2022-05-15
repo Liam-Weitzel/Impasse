@@ -22,8 +22,9 @@ import (
 const (
 	maxWidth  = 1360
 	maxHeight = 768
-	near      = 1
-	far       = 1500
+	far       = 1300
+	nearPlane = 0.1
+	farPlane  = 4096
 )
 
 type client struct {
@@ -217,7 +218,7 @@ func (c *client) run() error {
 	c.renderer.ProjMat = mgl32.Perspective(
 		mgl32.DegToRad(fov),
 		aspect,
-		near, far)
+		nearPlane, farPlane)
 
 	if err := c.allocFrameBuffer(rw, rh); err != nil {
 		return err
