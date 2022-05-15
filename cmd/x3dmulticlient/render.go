@@ -2,13 +2,62 @@ package main
 
 import (
 	"image"
+	"math"
 	"time"
 
 	"github.com/bamiaux/rez"
+	"github.com/go-gl/mathgl/mgl32"
 	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d/opengl"
 )
+
+const (
+	maxWidth  = 1360
+	maxHeight = 768
+)
+
+func fit(w, h int) bool {
+	return w <= maxWidth && h <= maxHeight
+}
+
+func aspectScale(x int, aspect float32) int {
+	return int(math.Ceil(float64(float32(x) * aspect)))
+}
+
+func fitSize(w, h int) (float32, int, int) {
+	aspect := float32(w) / float32(h)
+
+	if fit(w, h) {
+		return aspect, w, h
+	}
+
+	c1w, c1h := maxWidth, aspectScale(maxWidth, 1/aspect)
+	c2w, c2h := aspectScale(maxHeight, aspect), maxHeight
+
+	c1f := fit(c1w, c1h)
+	c2f := fit(c2w, c2h)
+
+	if c1f && c2f {
+		if c1w*c1h > c2w*c2h {
+			return aspect, c1w, c1h
+		}
+		return aspect, c2w, c2h
+	}
+
+	if c1f {
+		return aspect, c1w, c1h
+	}
+	return aspect, c2w, c2h
+}
+
+func (c *client) updateProjection(aspect float32) {
+	c.renderer.ProjMat = mgl32.Perspective(
+		mgl32.DegToRad(c.fov),
+		aspect,
+		nearPlane, farPlane)
+
+}
 
 func (c *client) compileShapes() error {
 

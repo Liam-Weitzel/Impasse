@@ -20,11 +20,10 @@ import (
 )
 
 const (
-	maxWidth  = 1360
-	maxHeight = 768
-	far       = 1300
-	nearPlane = 0.1
-	farPlane  = 4096
+	far        = 1300
+	nearPlane  = 0.1
+	farPlane   = 4096
+	defaultFOV = 60
 )
 
 type client struct {
@@ -46,6 +45,7 @@ type client struct {
 	visibleShapes    []*opengl.CompiledShape
 	visibleAttendees []opengl.SpherePostion
 
+	fov      float32
 	camera   *opengl.Camera
 	renderer *opengl.Renderer
 
@@ -97,6 +97,7 @@ func startClient(
 
 	c := &client{
 		scene:      scene,
+		fov:        defaultFOV,
 		directory:  directory,
 		window:     window,
 		screen:     screen,
@@ -149,40 +150,6 @@ func (c *client) drawHUD() {
 
 }
 
-func fit(w, h int) bool {
-	return w <= maxWidth && h <= maxHeight
-}
-
-func aspectScale(x int, aspect float32) int {
-	return int(math.Ceil(float64(float32(x) * aspect)))
-}
-
-func fitSize(w, h int) (float32, int, int) {
-	aspect := float32(w) / float32(h)
-
-	if fit(w, h) {
-		return aspect, w, h
-	}
-
-	c1w, c1h := maxWidth, aspectScale(maxWidth, 1/aspect)
-	c2w, c2h := aspectScale(maxHeight, aspect), maxHeight
-
-	c1f := fit(c1w, c1h)
-	c2f := fit(c2w, c2h)
-
-	if c1f && c2f {
-		if c1w*c1h > c2w*c2h {
-			return aspect, c1w, c1h
-		}
-		return aspect, c2w, c2h
-	}
-
-	if c1f {
-		return aspect, c1w, c1h
-	}
-	return aspect, c2w, c2h
-}
-
 func (c *client) run() error {
 
 	if len(c.scene.Viewpoints) == 0 {
@@ -200,30 +167,12 @@ func (c *client) run() error {
 	sw, sh := c.screen.Size()
 	aspect, rw, rh := fitSize(sw*4, sh*8)
 
-	fov := gfx.AspectRatioToFOV(aspect)
-
-	log.Printf("render size: %d x %d\n", rw, rh)
-	log.Printf("aspect: %f / fov: %f\n", aspect, fov)
-
-	fbo, fboFree, err := opengl.CreateFrameBuffer(int32(rw), int32(rh))
-	if err != nil {
-		return err
-	}
-	defer fboFree()
-	gl.BindFramebuffer(gl.FRAMEBUFFER, fbo)
-	gl.Viewport(0, 0, int32(rw), int32(rh))
-
-	c.renderedImage = image.NewRGBA(image.Rect(0, 0, rw, rh))
-
-	c.renderer.ProjMat = mgl32.Perspective(
-		mgl32.DegToRad(fov),
-		aspect,
-		nearPlane, farPlane)
-
 	if err := c.allocFrameBuffer(rw, rh); err != nil {
 		return err
 	}
 	defer func() { c.freeFBO() }()
+
+	c.updateProjection(aspect)
 
 	if c.sphere, err = opengl.NewSphere(15, 16, 16, false); err != nil {
 		return err

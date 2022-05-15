@@ -6,7 +6,6 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/go-gl/mathgl/mgl32"
-	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
 )
 
 const (
@@ -22,20 +21,12 @@ func (c *client) resize() {
 	sw, sh := c.screen.Size()
 	aspect, rw, rh := fitSize(sw*4, sh*8)
 
-	fov := gfx.AspectRatioToFOV(aspect)
-
 	c.freeFBO()
 	if err := c.allocFrameBuffer(rw, rh); err != nil {
 		log.Fatalf("Allocating framebuffer failed: %v\n", err)
 	}
 
-	log.Printf("render size: %d x %d\n", rw, rh)
-	log.Printf("aspect: %f / fov: %f\n", aspect, fov)
-
-	c.renderer.ProjMat = mgl32.Perspective(
-		mgl32.DegToRad(fov),
-		aspect,
-		nearPlane, farPlane)
+	c.updateProjection(aspect)
 
 	c.dirty = true
 }
