@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
-	gl "github.com/go-gl/gl/v3.0/gles2"
+	gl "github.com/go-gl/gl/v3.1/gles2"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/veandco/go-sdl2/sdl"
 	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"

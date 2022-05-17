@@ -40,7 +40,7 @@ func WrapWindow(fn func(*sdl.Window) error) error {
 	sdl.GLSetAttribute(
 		sdl.GL_CONTEXT_MAJOR_VERSION, 3)
 	sdl.GLSetAttribute(
-		sdl.GL_CONTEXT_MINOR_VERSION, 0)
+		sdl.GL_CONTEXT_MINOR_VERSION, 1)
 	sdl.GLSetAttribute(sdl.GL_DOUBLEBUFFER, 0)
 
 	var window *sdl.Window

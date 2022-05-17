@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"unsafe"
 
-	gl "github.com/go-gl/gl/v3.0/gles2"
+	gl "github.com/go-gl/gl/v3.1/gles2"
 	"github.com/go-gl/mathgl/mgl32"
 )
 

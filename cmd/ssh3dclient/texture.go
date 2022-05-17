@@ -7,7 +7,7 @@ import (
 	"image/draw"
 	_ "image/png"
 
-	gl "github.com/go-gl/gl/v3.0/gles2"
+	gl "github.com/go-gl/gl/v3.1/gles2"
 )
 
 func rgbaFromBytes(src []byte) (*image.RGBA, error) {

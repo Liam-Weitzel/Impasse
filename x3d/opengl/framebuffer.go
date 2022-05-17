@@ -3,7 +3,7 @@ package opengl
 import (
 	"fmt"
 
-	gl "github.com/go-gl/gl/v3.0/gles2"
+	gl "github.com/go-gl/gl/v3.1/gles2"
 )
 
 func CreateFrameBuffer(width, height int32) (uint32, func(), error) {
