@@ -144,11 +144,13 @@ func (c *client) render() {
 	}
 
 	gfx.BlitRunes(c.screen, src, false)
+	t2 := time.Now()
+	c.conversionDuration = t2.Sub(t1)
 
 	c.drawHUD()
 
 	c.screen.Show()
-	t2 := time.Now()
-	c.frameDuration = t1.Sub(t0)
-	c.termDuration = t2.Sub(t1)
+	t3 := time.Now()
+	c.renderDuration = t1.Sub(t0)
+	c.termDuration = t3.Sub(t1)
 }
