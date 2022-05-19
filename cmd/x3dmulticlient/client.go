@@ -56,8 +56,9 @@ type client struct {
 	renderedImage *image.RGBA
 	canvas        *image.RGBA
 
-	frameDuration time.Duration
-	termDuration  time.Duration
+	renderDuration     time.Duration
+	conversionDuration time.Duration
+	termDuration       time.Duration
 
 	attendees map[uint64]*attendee
 	color     mgl32.Vec3
@@ -146,8 +147,9 @@ func (c *client) drawHUD() {
 	width, height := c.screen.Size()
 
 	gfx.WriteString(c.screen, 0, height-1,
-		fmt.Sprintf("Frame time: %.2fms [%.2fms]",
-			float64(c.frameDuration.Microseconds()/1000),
+		fmt.Sprintf("Rendering: %.2fms|Conversion: %.2fms|Update: %.2fms",
+			float64(c.renderDuration.Microseconds()/1000),
+			float64(c.conversionDuration.Microseconds()/1000),
 			float64(c.termDuration.Microseconds())/1000), st)
 
 	fovS := fmt.Sprintf("FOV: +/- [%.2f°]", c.fov)
