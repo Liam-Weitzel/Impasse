@@ -151,13 +151,13 @@ func (c *client) drawHUD() {
 	fps := 1 / totalTime.Seconds()
 
 	gfx.WriteString(c.screen, 0, height-1,
-		fmt.Sprintf("Rendering: %.2fms|Conversion: %.2fms|Update: %.2fms|FPS: %.2f",
+		fmt.Sprintf("3D: %5.2fms|Unicode: %5.2fms|Update: %5.2fms|FPS: %.2f",
 			float64(c.renderDuration.Microseconds())/1000,
 			float64(c.conversionDuration.Microseconds())/1000,
 			float64(c.termDuration.Microseconds())/1000,
 			fps), st)
 
-	fovS := fmt.Sprintf("FOV: +/- [%.2f°]", c.fov)
+	fovS := fmt.Sprintf("FOV: +/- %3.0f°", c.fov)
 	gfx.WriteString(
 		c.screen, width-utf8.RuneCountInString(fovS), height-1,
 		fovS, st)
