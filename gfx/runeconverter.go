@@ -123,8 +123,8 @@ type RuneConverter struct {
 	bitmaps   []bitsRune
 	CodePoint rune
 
-	BGColor [3]int
-	FGColor [3]int
+	BGColor [3]int32
+	FGColor [3]int32
 }
 
 func NewRuneConverter(useGeoms bool) RuneConverter {
@@ -177,8 +177,8 @@ func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
 	var bestSplit uint8
 
 	for i := range min {
-		if max[i]-min[i] > bestSplit {
-			bestSplit = max[i] - min[i]
+		if s := max[i] - min[i]; s > bestSplit {
+			bestSplit = s
 			splitIndex = i
 		}
 	}
@@ -187,12 +187,12 @@ func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
 	splitValue := min[splitIndex] + bestSplit/2
 
 	var pixel uint32
-	var fgCount int
+	var fgCount int32
 
 	for y, pos := 0, p0; y < 8; y, pos = y+1, pos+img.Stride-4*4 {
 		for x := 0; x < 4; x++ {
 			pixel <<= 1
-			var avg *[3]int
+			var avg *[3]int32
 			if data[pos+splitIndex] > splitValue {
 				avg = &rc.FGColor
 				pixel |= 1
@@ -201,7 +201,7 @@ func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
 				avg = &rc.BGColor
 			}
 			for i := range *avg {
-				avg[i] += int(data[pos])
+				avg[i] += int32(data[pos])
 				pos++
 			}
 			pos++
@@ -242,8 +242,8 @@ func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
 	if bestDiff > 10 {
 		invert = false
 		idx := fgCount * 5 / 32
-		if idx >= len(shades) {
-			idx = len(shades) - 1
+		if l := int32(len(shades)); idx >= l {
+			idx = l - 1
 		}
 		rc.CodePoint = shades[idx]
 	}

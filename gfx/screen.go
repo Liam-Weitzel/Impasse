@@ -82,13 +82,13 @@ func BlitRunes(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 					rc.Extract(canvas, x, y)
 					st := tcell.StyleDefault.
 						Foreground(tcell.NewRGBColor(
-							int32(rc.FGColor[0]),
-							int32(rc.FGColor[1]),
-							int32(rc.FGColor[2]))).
+							rc.FGColor[0],
+							rc.FGColor[1],
+							rc.FGColor[2])).
 						Background(tcell.NewRGBColor(
-							int32(rc.BGColor[0]),
-							int32(rc.BGColor[1]),
-							int32(rc.BGColor[2])))
+							rc.BGColor[0],
+							rc.BGColor[1],
+							rc.BGColor[2]))
 					cells[j] = cell{
 						r:  rc.CodePoint,
 						st: st,
