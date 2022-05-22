@@ -199,9 +199,10 @@ func (rc *RuneConverter) ExtractInterpol(
 
 	var data [4 * 8 * 3]byte
 
+	sx := colWidth * float32(x)
+
 	for i, pos, ry := 0, data[:], rowHeight*float32(y); i < 8; i, ry = i+1, ry+dy {
-		rx := colWidth * float32(x+i)
-		for j := 0; j < 4; j, rx, pos = j+1, rx+dx, pos[3:] {
+		for j, rx := 0, sx; j < 4; j, rx, pos = j+1, rx+dx, pos[3:] {
 			interpolate(img, rx, ry, pos)
 		}
 	}
