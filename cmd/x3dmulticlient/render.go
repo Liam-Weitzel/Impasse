@@ -1,11 +1,9 @@
 package main
 
 import (
-	"image"
 	"math"
 	"time"
 
-	"github.com/bamiaux/rez"
 	"github.com/go-gl/mathgl/mgl32"
 	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
@@ -129,21 +127,7 @@ func (c *client) render() {
 	c.visibleShapes = c.visibleShapes[:0]
 	t1 := time.Now()
 
-	swidth, sheight := c.screen.Size()
-	sdim := image.Rect(0, 0, 4*swidth, 8*sheight)
-	var src *image.RGBA
-
-	if !c.renderedImage.Bounds().Eq(sdim) {
-		if c.canvas == nil || !c.canvas.Bounds().Eq(sdim) {
-			c.canvas = image.NewRGBA(sdim)
-		}
-		rez.Convert(c.canvas, c.renderedImage, rez.NewBilinearFilter())
-		src = c.canvas
-	} else {
-		src = c.renderedImage
-	}
-
-	gfx.BlitRunes(c.screen, src, false)
+	gfx.BlitRunes(c.screen, c.renderedImage, false)
 	t2 := time.Now()
 	c.conversionDuration = t2.Sub(t1)
 

@@ -2,6 +2,7 @@ package gfx
 
 import (
 	"image"
+	"log"
 	"runtime"
 	"sync"
 
@@ -18,6 +19,117 @@ func WriteString(sc tcell.Screen, x, y int, s string, st tcell.Style) {
 }
 
 func BlitRunes(s tcell.Screen, canvas *image.RGBA, geoms bool) {
+
+	blitRunesInterpolate(s, canvas, geoms)
+	/*
+		cw, ch := canvas.Rect.Dx(), canvas.Rect.Dy()
+		sw, sh := s.Size()
+
+		if cw == sw*4 && ch == 8*sh {
+			blitRunesFit(s, canvas, geoms)
+		} else {
+			log.Println("interpolated")
+			blitRunesInterpolate(s, canvas, geoms)
+		}
+	*/
+}
+
+func blitRunesInterpolate(s tcell.Screen, canvas *image.RGBA, geoms bool) {
+
+	//width, _ := canvas.Rect.Dx(), canvas.Rect.Dy()
+	sWidth, sHeight := s.Size()
+
+	log.Printf("s width: %d\n", sWidth)
+
+	var wg sync.WaitGroup
+
+	rows := make(chan int)
+
+	n := runtime.NumCPU()
+
+	type cell struct {
+		r  rune
+		st tcell.Style
+	}
+
+	type rowRes struct {
+		row   int
+		cells []cell
+	}
+
+	leaky := make(chan []cell, n)
+
+	alloc := func() []cell {
+		select {
+		case cells := <-leaky:
+			return cells
+		default:
+			return make([]cell, sWidth)
+		}
+	}
+
+	free := func(cells []cell) {
+		select {
+		case leaky <- cells:
+		default:
+		}
+	}
+
+	converted := make(chan rowRes, n)
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		for res := range converted {
+			for j := range res.cells {
+				cell := &res.cells[j]
+				s.SetContent(j, res.row, cell.r, nil, cell.st)
+			}
+			free(res.cells)
+		}
+	}()
+
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rc := NewRuneConverter(geoms)
+			for i := range rows {
+				y := i
+				cells := alloc()
+				for j := range cells {
+					rc.ExtractInterpol(canvas, sWidth, sHeight, j, y)
+					st := tcell.StyleDefault.
+						Foreground(tcell.NewRGBColor(
+							rc.FGColor[0],
+							rc.FGColor[1],
+							rc.FGColor[2])).
+						Background(tcell.NewRGBColor(
+							rc.BGColor[0],
+							rc.BGColor[1],
+							rc.BGColor[2]))
+					cells[j] = cell{
+						r:  rc.CodePoint,
+						st: st,
+					}
+				}
+				converted <- rowRes{row: i, cells: cells}
+			}
+		}()
+	}
+
+	for i := 0; i < sHeight; i++ {
+		rows <- i
+	}
+
+	close(rows)
+	wg.Wait()
+	close(converted)
+	<-done
+}
+
+func blitRunesFit(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 
 	width, height := canvas.Rect.Dx(), canvas.Rect.Dy()
 

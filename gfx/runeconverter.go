@@ -5,7 +5,6 @@ package gfx
 
 import (
 	"image"
-	"math"
 	"math/bits"
 )
 
@@ -137,8 +136,75 @@ func NewRuneConverter(useGeoms bool) RuneConverter {
 	return RuneConverter{bitmaps: bms}
 }
 
-func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
-	p0 := img.PixOffset(x, y)
+func interpolate(img *image.RGBA, x, y float32, data []byte) {
+
+	x1 := int(x)
+	y1 := int(y)
+	var x2, y2 int
+	var xf, yf float32
+
+	if w := img.Rect.Dx(); x1 >= w-1 {
+		x1 = w - 1
+		x2 = x1
+	} else {
+		x2 = x1 + 1
+		xf = x - float32(x1)
+	}
+
+	if h := img.Rect.Dy(); y1 >= h-1 {
+		y1 = h - 1
+		y2 = y1
+	} else {
+		y2 = y1 + 1
+		yf = y - float32(y1)
+	}
+
+	pix := img.Pix
+
+	p00 := pix[y1*img.Stride+x1*4:]
+	p10 := pix[y1*img.Stride+x2*4:]
+	p01 := pix[y2*img.Stride+x1*4:]
+	p11 := pix[y2*img.Stride+x2*4:]
+
+	r1 := float32(p00[0])*(1-xf) + float32(p10[0])*xf
+	g1 := float32(p00[1])*(1-xf) + float32(p10[1])*xf
+	b1 := float32(p00[2])*(1-xf) + float32(p10[2])*xf
+
+	r2 := float32(p01[0])*(1-xf) + float32(p11[0])*xf
+	g2 := float32(p01[1])*(1-xf) + float32(p11[1])*xf
+	b2 := float32(p01[2])*(1-xf) + float32(p11[2])*xf
+
+	r := r1*(1-yf) + r2*yf
+	g := g1*(1-yf) + g2*yf
+	b := b1*(1-yf) + b2*yf
+
+	data[0] = byte(r)
+	data[1] = byte(g)
+	data[2] = byte(b)
+}
+
+func (rc *RuneConverter) ExtractInterpol(
+	img *image.RGBA,
+	columns, rows int,
+	x, y int,
+) {
+	width := img.Rect.Dx()
+	colWidth := float32(width) / float32(columns)
+	dx := colWidth / 4
+
+	height := img.Rect.Dy()
+	rowHeight := float32(height) / float32(rows)
+	dy := rowHeight / 8
+	//log.Printf("%f\n", dy)
+
+	var data [4 * 8 * 3]byte
+
+	for i, pos, ry := 0, data[:], rowHeight*float32(y); i < 8; i, ry = i+1, ry+dy {
+		rx := colWidth * float32(x+i)
+		for j := 0; j < 4; j, rx, pos = j+1, rx+dx, pos[3:] {
+			interpolate(img, rx, ry, pos)
+		}
+	}
 
 	var min, max [3]uint8
 
@@ -146,12 +212,119 @@ func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
 		min[i] = 255
 	}
 
+	// Determine the minimum and maximum value for each color channel
+	for y, pos := 0, data[:]; y < 8; y++ {
+		for x := 0; x < 4; x, pos = x+1, pos[3:] {
+			for i, d := range pos[:3] {
+				if d < min[i] {
+					min[i] = d
+				}
+				if d > max[i] {
+					max[i] = d
+				}
+			}
+		}
+	}
+
+	// Determine the color channel with the greatest range.
+	var splitIndex int
+	var bestSplit uint8
+
+	for i := range min {
+		if s := max[i] - min[i]; s > bestSplit {
+			bestSplit = s
+			splitIndex = i
+		}
+	}
+
+	// We just split at the middle of the interval instead of computing the median.
+	splitValue := min[splitIndex] + bestSplit/2
+
 	for i := range rc.FGColor {
 		rc.FGColor[i] = 0
 	}
 
 	for i := range rc.BGColor {
 		rc.BGColor[i] = 0
+	}
+
+	var pixel uint32
+	var fgCount int32
+
+	for y, pos := 0, data[:]; y < 8; y++ {
+
+		for x := 0; x < 4; x, pos = x+1, pos[3:] {
+			pixel <<= 1
+
+			var avg *[3]int32
+
+			if pos[splitIndex] > splitValue {
+				avg = &rc.FGColor
+				pixel |= 1
+				fgCount++
+			} else {
+				avg = &rc.BGColor
+			}
+			for i := range *avg {
+				avg[i] += int32(pos[i])
+			}
+		}
+	}
+
+	if bgCount := 8*4 - fgCount; bgCount > 0 {
+		for i := range rc.BGColor {
+			rc.BGColor[i] /= bgCount
+		}
+	}
+
+	if fgCount > 0 {
+		for i := range rc.FGColor {
+			rc.FGColor[i] /= fgCount
+		}
+	}
+
+	rc.CodePoint = 0
+	bestDiff := 33
+	invert := false
+
+	for i := range rc.bitmaps {
+		bm := &rc.bitmaps[i]
+		if diff := bits.OnesCount32(bm.pixel ^ pixel); diff < bestDiff {
+			bestDiff = diff
+			rc.CodePoint = bm.r
+			invert = false
+		}
+		if diff := bits.OnesCount32(^bm.pixel ^ pixel); diff < bestDiff {
+			bestDiff = diff
+			rc.CodePoint = bm.r
+			invert = true
+		}
+	}
+	// If the match is quite bad, use a shade image instead.
+	if bestDiff > 10 {
+		invert = false
+		idx := fgCount * 5 / 32
+		if l := int32(len(shades)); idx >= l {
+			idx = l - 1
+		}
+		rc.CodePoint = shades[idx]
+	}
+
+	// If we use an inverted character, we need to swap the colors.
+	if invert {
+		rc.FGColor, rc.BGColor = rc.BGColor, rc.FGColor
+	}
+
+}
+
+func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
+
+	p0 := y*img.Stride + x*4
+
+	var min, max [3]uint8
+
+	for i := range min {
+		min[i] = 255
 	}
 
 	data := img.Pix
@@ -172,7 +345,6 @@ func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
 	}
 
 	// Determine the color channel with the greatest range.
-
 	var splitIndex int
 	var bestSplit uint8
 
@@ -185,6 +357,14 @@ func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
 
 	// We just split at the middle of the interval instead of computing the median.
 	splitValue := min[splitIndex] + bestSplit/2
+
+	for i := range rc.FGColor {
+		rc.FGColor[i] = 0
+	}
+
+	for i := range rc.BGColor {
+		rc.BGColor[i] = 0
+	}
 
 	var pixel uint32
 	var fgCount int32
@@ -207,9 +387,8 @@ func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
 			pos++
 		}
 	}
-	bgCount := 8*4 - fgCount
 
-	if bgCount > 0 {
+	if bgCount := 8*4 - fgCount; bgCount > 0 {
 		for i := range rc.BGColor {
 			rc.BGColor[i] /= bgCount
 		}
@@ -222,7 +401,7 @@ func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
 	}
 
 	rc.CodePoint = 0
-	bestDiff := math.MaxInt32
+	bestDiff := 33
 	invert := false
 
 	for i := range rc.bitmaps {
