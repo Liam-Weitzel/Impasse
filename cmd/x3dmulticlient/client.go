@@ -54,7 +54,6 @@ type client struct {
 	fbo           uint32
 	freeFBO       func()
 	renderedImage *image.RGBA
-	canvas        *image.RGBA
 
 	renderDuration     time.Duration
 	conversionDuration time.Duration

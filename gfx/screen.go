@@ -2,7 +2,6 @@ package gfx
 
 import (
 	"image"
-	"log"
 	"runtime"
 	"sync"
 
@@ -20,26 +19,19 @@ func WriteString(sc tcell.Screen, x, y int, s string, st tcell.Style) {
 
 func BlitRunes(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 
-	blitRunesInterpolate(s, canvas, geoms)
-	/*
-		cw, ch := canvas.Rect.Dx(), canvas.Rect.Dy()
-		sw, sh := s.Size()
+	cw, ch := canvas.Rect.Dx(), canvas.Rect.Dy()
+	sw, sh := s.Size()
 
-		if cw == sw*4 && ch == 8*sh {
-			blitRunesFit(s, canvas, geoms)
-		} else {
-			log.Println("interpolated")
-			blitRunesInterpolate(s, canvas, geoms)
-		}
-	*/
+	if cw == sw*4 && ch == 8*sh {
+		blitRunesFit(s, canvas, geoms)
+	} else {
+		blitRunesInterpolate(s, canvas, geoms)
+	}
 }
 
 func blitRunesInterpolate(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 
-	//width, _ := canvas.Rect.Dx(), canvas.Rect.Dy()
 	sWidth, sHeight := s.Size()
-
-	log.Printf("s width: %d\n", sWidth)
 
 	var wg sync.WaitGroup
 
@@ -131,7 +123,8 @@ func blitRunesInterpolate(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 
 func blitRunesFit(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 
-	width, height := canvas.Rect.Dx(), canvas.Rect.Dy()
+	//width, height := canvas.Rect.Dx(), canvas.Rect.Dy()
+	width, height := s.Size()
 
 	var wg sync.WaitGroup
 
@@ -156,7 +149,7 @@ func blitRunesFit(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 		case cells := <-leaky:
 			return cells
 		default:
-			return make([]cell, width/4)
+			return make([]cell, width)
 		}
 	}
 
@@ -212,7 +205,7 @@ func blitRunesFit(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 		}()
 	}
 
-	for i, y := 0, 0; y < height; y, i = y+8, i+1 {
+	for i := 0; i < height; i++ {
 		rows <- i
 	}
 

@@ -136,35 +136,35 @@ func NewRuneConverter(useGeoms bool) RuneConverter {
 	return RuneConverter{bitmaps: bms}
 }
 
-func interpolate(img *image.RGBA, x, y float32, data []byte) {
+func interpolate(pix []byte, width, height int, x, y float32, data []byte) {
 
 	x1 := int(x)
 	y1 := int(y)
 	var x2, y2 int
 	var xf, yf float32
 
-	if w := img.Rect.Dx(); x1 >= w-1 {
-		x1 = w - 1
+	if x1 >= width-1 {
+		x1 = width - 1
 		x2 = x1
 	} else {
 		x2 = x1 + 1
 		xf = x - float32(x1)
 	}
 
-	if h := img.Rect.Dy(); y1 >= h-1 {
-		y1 = h - 1
+	if y1 >= height-1 {
+		y1 = height - 1
 		y2 = y1
 	} else {
 		y2 = y1 + 1
 		yf = y - float32(y1)
 	}
 
-	pix := img.Pix
+	p00 := pix[(y1*width+x1)*4:]
+	p10 := pix[(y1*width+x2)*4:]
+	p01 := pix[(y2*width+x1)*4:]
+	p11 := pix[(y2*width+x2)*4:]
 
-	p00 := pix[y1*img.Stride+x1*4:]
-	p10 := pix[y1*img.Stride+x2*4:]
-	p01 := pix[y2*img.Stride+x1*4:]
-	p11 := pix[y2*img.Stride+x2*4:]
+	_, _, _, _ = p00[2], p10[2], p01[2], p11[2]
 
 	r1 := float32(p00[0])*(1-xf) + float32(p10[0])*xf
 	g1 := float32(p00[1])*(1-xf) + float32(p10[1])*xf
@@ -201,21 +201,15 @@ func (rc *RuneConverter) ExtractInterpol(
 
 	sx := colWidth * float32(x)
 
-	for i, pos, ry := 0, data[:], rowHeight*float32(y); i < 8; i, ry = i+1, ry+dy {
-		for j, rx := 0, sx; j < 4; j, rx, pos = j+1, rx+dx, pos[3:] {
-			interpolate(img, rx, ry, pos)
-		}
-	}
-
 	var min, max [3]uint8
 
 	for i := range min {
 		min[i] = 255
 	}
 
-	// Determine the minimum and maximum value for each color channel
-	for y, pos := 0, data[:]; y < 8; y++ {
-		for x := 0; x < 4; x, pos = x+1, pos[3:] {
+	for i, pos, ry := 0, data[:], rowHeight*float32(y); i < 8; i, ry = i+1, ry+dy {
+		for j, rx := 0, sx; j < 4; j, rx, pos = j+1, rx+dx, pos[3:] {
+			interpolate(img.Pix, width, height, rx, ry, pos)
 			for i, d := range pos[:3] {
 				if d < min[i] {
 					min[i] = d
@@ -318,7 +312,10 @@ func (rc *RuneConverter) ExtractInterpol(
 
 }
 
-func (rc *RuneConverter) Extract(img *image.RGBA, x, y int) {
+func (rc *RuneConverter) Extract(
+	img *image.RGBA,
+	x, y int,
+) {
 
 	p0 := y*img.Stride + x*4
 
