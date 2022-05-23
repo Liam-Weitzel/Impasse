@@ -29,6 +29,36 @@ func BlitRunes(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 	}
 }
 
+type (
+	cell struct {
+		r  rune
+		st tcell.Style
+	}
+
+	rowRes struct {
+		row   int
+		cells []cell
+	}
+
+	leaky chan []cell
+)
+
+func (l leaky) alloc(n int) []cell {
+	select {
+	case cells := <-l:
+		return cells
+	default:
+		return make([]cell, n)
+	}
+}
+
+func (l leaky) free(cells []cell) {
+	select {
+	case l <- cells:
+	default:
+	}
+}
+
 func blitRunesInterpolate(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 
 	sWidth, sHeight := s.Size()
@@ -39,33 +69,7 @@ func blitRunesInterpolate(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 
 	n := runtime.NumCPU()
 
-	type cell struct {
-		r  rune
-		st tcell.Style
-	}
-
-	type rowRes struct {
-		row   int
-		cells []cell
-	}
-
-	leaky := make(chan []cell, n)
-
-	alloc := func() []cell {
-		select {
-		case cells := <-leaky:
-			return cells
-		default:
-			return make([]cell, sWidth)
-		}
-	}
-
-	free := func(cells []cell) {
-		select {
-		case leaky <- cells:
-		default:
-		}
-	}
+	pool := make(leaky, n)
 
 	converted := make(chan rowRes, n)
 
@@ -78,7 +82,7 @@ func blitRunesInterpolate(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 				cell := &res.cells[j]
 				s.SetContent(j, res.row, cell.r, nil, cell.st)
 			}
-			free(res.cells)
+			pool.free(res.cells)
 		}
 	}()
 
@@ -89,7 +93,7 @@ func blitRunesInterpolate(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 			rc := NewRuneConverter(geoms)
 			for i := range rows {
 				y := i
-				cells := alloc()
+				cells := pool.alloc(sWidth)
 				for j := range cells {
 					rc.ExtractInterpol(canvas, sWidth, sHeight, j, y)
 					st := tcell.StyleDefault.
@@ -123,7 +127,6 @@ func blitRunesInterpolate(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 
 func blitRunesFit(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 
-	//width, height := canvas.Rect.Dx(), canvas.Rect.Dy()
 	width, height := s.Size()
 
 	var wg sync.WaitGroup
@@ -132,33 +135,7 @@ func blitRunesFit(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 
 	n := runtime.NumCPU()
 
-	type cell struct {
-		r  rune
-		st tcell.Style
-	}
-
-	type rowRes struct {
-		row   int
-		cells []cell
-	}
-
-	leaky := make(chan []cell, n)
-
-	alloc := func() []cell {
-		select {
-		case cells := <-leaky:
-			return cells
-		default:
-			return make([]cell, width)
-		}
-	}
-
-	free := func(cells []cell) {
-		select {
-		case leaky <- cells:
-		default:
-		}
-	}
+	pool := make(leaky, n)
 
 	converted := make(chan rowRes, n)
 
@@ -171,7 +148,7 @@ func blitRunesFit(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 				cell := &res.cells[j]
 				s.SetContent(j, res.row, cell.r, nil, cell.st)
 			}
-			free(res.cells)
+			pool.free(res.cells)
 		}
 	}()
 
@@ -182,7 +159,7 @@ func blitRunesFit(s tcell.Screen, canvas *image.RGBA, geoms bool) {
 			rc := NewRuneConverter(geoms)
 			for i := range rows {
 				x, y := 0, i*8
-				cells := alloc()
+				cells := pool.alloc(width)
 				for j := range cells {
 					rc.Extract(canvas, x, y)
 					st := tcell.StyleDefault.
