@@ -4,7 +4,6 @@
 package gfx
 
 import (
-	"image"
 	"math/bits"
 )
 
@@ -119,21 +118,38 @@ var shades = []rune{
 }
 
 type RuneConverter struct {
-	bitmaps   []bitsRune
-	CodePoint rune
+	bitmaps []bitsRune
+	width   int
+	height  int
+	columns int
+	rows    int
+	exact   bool
 
-	BGColor [3]int32
-	FGColor [3]int32
+	CodePoint rune
+	BGColor   [3]int32
+	FGColor   [3]int32
 }
 
-func NewRuneConverter(useGeoms bool) RuneConverter {
+func NewRuneConverter(
+	width, height int,
+	columns, rows int,
+	useGeoms bool,
+) RuneConverter {
 	var bms []bitsRune
 	if useGeoms {
 		bms = bitmaps
 	} else {
 		bms = bitmaps[:len(bitmaps)-9]
 	}
-	return RuneConverter{bitmaps: bms}
+	exact := width == 4*columns && height == 8*rows
+	return RuneConverter{
+		bitmaps: bms,
+		width:   width,
+		height:  height,
+		columns: columns,
+		rows:    rows,
+		exact:   exact,
+	}
 }
 
 func interpolate(pix []byte, width, height int, x, y float32, data []byte) {
@@ -183,17 +199,22 @@ func interpolate(pix []byte, width, height int, x, y float32, data []byte) {
 	data[2] = byte(b)
 }
 
-func (rc *RuneConverter) ExtractInterpol(
-	img *image.RGBA,
-	columns, rows int,
-	x, y int,
-) {
-	width := img.Rect.Dx()
-	colWidth := float32(width) / float32(columns)
+func (rc *RuneConverter) Extract(pix []byte, x, y int) {
+	if rc.exact {
+		rc.extractExact(pix, x, y)
+	} else {
+		rc.extractInterpol(pix, x, y)
+	}
+}
+
+func (rc *RuneConverter) extractInterpol(img []byte, x, y int) {
+
+	//width := img.Rect.Dx()
+	colWidth := float32(rc.width) / float32(rc.columns)
 	dx := colWidth / 4
 
-	height := img.Rect.Dy()
-	rowHeight := float32(height) / float32(rows)
+	//height := img.Rect.Dy()
+	rowHeight := float32(rc.height) / float32(rc.rows)
 	dy := rowHeight / 8
 	//log.Printf("%f\n", dy)
 
@@ -209,7 +230,7 @@ func (rc *RuneConverter) ExtractInterpol(
 
 	for i, pos, ry := 0, data[:], rowHeight*float32(y); i < 8; i, ry = i+1, ry+dy {
 		for j, rx := 0, sx; j < 4; j, rx, pos = j+1, rx+dx, pos[3:] {
-			interpolate(img.Pix, width, height, rx, ry, pos)
+			interpolate(img, rc.width, rc.height, rx, ry, pos)
 			for i, d := range pos[:3] {
 				if d < min[i] {
 					min[i] = d
@@ -312,12 +333,10 @@ func (rc *RuneConverter) ExtractInterpol(
 
 }
 
-func (rc *RuneConverter) Extract(
-	img *image.RGBA,
-	x, y int,
-) {
+func (rc *RuneConverter) extractExact(pix []byte, x, y int) {
 
-	p0 := y*img.Stride + x*4
+	stride := rc.width * 4
+	p0 := y*stride*8 + x*4*4
 
 	var min, max [3]uint8
 
@@ -325,20 +344,17 @@ func (rc *RuneConverter) Extract(
 		min[i] = 255
 	}
 
-	data := img.Pix
 	// Determine the minimum and maximum value for each color channel
-	for y, pos := 0, p0; y < 8; y, pos = y+1, pos+img.Stride-4*4 {
-		for x := 0; x < 4; x++ {
-			for i := 0; i < 3; i, pos = i+1, pos+1 {
-				if data[pos] < min[i] {
-					min[i] = data[pos]
+	for j, p := 0, p0; j < 8; j, p = j+1, p+stride {
+		for row := pix[p : p+4*4]; len(row) > 0; row = row[4:] {
+			for i, v := range row[:3] {
+				if v < min[i] {
+					min[i] = v
 				}
-				if data[pos] > max[i] {
-					max[i] = data[pos]
+				if v > max[i] {
+					max[i] = v
 				}
-
 			}
-			pos++ // alpha
 		}
 	}
 
@@ -367,11 +383,12 @@ func (rc *RuneConverter) Extract(
 	var pixel uint32
 	var fgCount int32
 
-	for y, pos := 0, p0; y < 8; y, pos = y+1, pos+img.Stride-4*4 {
-		for x := 0; x < 4; x++ {
+	for j, p := 0, p0; j < 8; j, p = j+1, p+stride {
+		for row := pix[p : p+4*4]; len(row) > 0; row = row[4:] {
 			pixel <<= 1
+
 			var avg *[3]int32
-			if data[pos+splitIndex] > splitValue {
+			if row[splitIndex] > splitValue {
 				avg = &rc.FGColor
 				pixel |= 1
 				fgCount++
@@ -379,10 +396,8 @@ func (rc *RuneConverter) Extract(
 				avg = &rc.BGColor
 			}
 			for i := range *avg {
-				avg[i] += int32(data[pos])
-				pos++
+				avg[i] += int32(row[i])
 			}
-			pos++
 		}
 	}
 
