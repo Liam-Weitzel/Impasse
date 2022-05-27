@@ -24,8 +24,8 @@ const (
 	nearPlane  = 0.1
 	farPlane   = 4096
 	minFOV     = 60
-	maxFOV     = 110
-	defaultFOV = minFOV
+	maxFOV     = 130
+	defaultFOV = 90
 )
 
 type client struct {

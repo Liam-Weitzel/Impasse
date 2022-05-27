@@ -57,7 +57,7 @@ func (c *client) updateProjectionScreen() {
 
 func (c *client) updateProjection(aspect float32) {
 	c.renderer.ProjMat = mgl32.Perspective(
-		mgl32.DegToRad(c.fov),
+		mgl32.DegToRad(c.fov)*0.5, // compensation for 1:2 cell width/height.
 		aspect,
 		nearPlane, farPlane)
 
