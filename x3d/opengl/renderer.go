@@ -217,7 +217,6 @@ func (s *State) bindTexture(texture uint32) {
 	}
 	s.lastTexture = texture
 	gl.BindTexture(gl.TEXTURE_2D, texture)
-	gl.Uniform1i(s.texSamplerUniformLoc, 0)
 }
 
 func (s *State) extractUniforms(program uint32) error {
