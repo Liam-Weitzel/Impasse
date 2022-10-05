@@ -42,7 +42,7 @@ Now you can build the binaries. Don't forget to set the `PKG_CONFIG_PATH` env va
 export PKG_CONFIG_PATH=$HOME/devel/sdl2/SDL2-$SDL_VERSION:$PKG_CONFIG_PATH
 
 git clone https://gitlab.com/sascha.l.teichmann/ssh3d.git
-cd ss3d
+cd ssh3d
 go build -o bin/ssh3dmulti ./cmd/ssh3dmulti
 go build -o bin/x3dmulticlient ./cmd/x3dmulticlient
 ```
