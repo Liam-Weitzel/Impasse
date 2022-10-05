@@ -1,6 +1,11 @@
 # SSH3D - A small demo SSH server which renders multi-user 3D levels.
 
-WIP!
+Demonstration of a SSH server with does interactive 3D renderings
+in the terminal when connected to. Connected clients
+can see each other. See a video of it on [YouTube](https://youtu.be/5PbXXZQdPrc).
+
+![screen shot](./images/screenshot.png "Screen shot")
+
 
 ## Build
 
