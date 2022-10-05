@@ -28,6 +28,7 @@ If this fails install the missing dependencies reported by configure.
 ```
 make -j$(nproc)
 make install
+cd ..
 ```
 
 As `go-sdl2` needs to compile the bindings to SDL2. So, please,
