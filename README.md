@@ -19,7 +19,7 @@ export SDL_VERSION=2.24.1
 cd $HOME
 mkdir -p devel/sdl2/custom
 cd devel/sdl2
-wget https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VERSION/SDL2-SDL_VERSION.tar.gz
+wget https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VERSION/SDL2-$SDL_VERSION.tar.gz
 tar xfz SDL2-$SDL_VERSION.tar.gz
 cd SDL2-2.24.1
 ./configure --enable-video-offscreen=yes --prefix=$HOME/devel/sdl2/custom
