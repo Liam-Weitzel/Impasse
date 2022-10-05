@@ -30,7 +30,7 @@ make -j$(nproc)
 make install
 ```
 
-As `go-sdl2` needs to build to compile the bindings to SDL2. So, please,
+As `go-sdl2` needs to compile the bindings to SDL2. So, please,
 clean your Go cache before to prevent interfering with a possible
 pre-installed and used system SDL2 installation:
 ```
