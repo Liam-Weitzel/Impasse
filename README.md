@@ -4,7 +4,7 @@ WIP!
 
 ## Build
 
-You need a working Go dev enviroment on your installed on your system.
+You need a working Go dev enviroment installed on your system.
 [Go 1.19+](https://go.dev/dl/) works fine.
 
 This software was developed and tested under GNU/Linux systems.
@@ -30,9 +30,9 @@ make -j$(nproc)
 make install
 ```
 
-As `go-sdl2` needs to build to compile the bindings to SDL2 please
-clean your Go cache now to prevent interfering with a possible
-pre-installed and used system SDL installation:
+As `go-sdl2` needs to build to compile the bindings to SDL2. So, please,
+clean your Go cache before to prevent interfering with a possible
+pre-installed and used system SDL2 installation:
 ```
 go clean -cache
 ```
