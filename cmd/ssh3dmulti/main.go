@@ -88,6 +88,7 @@ func main() {
 		port       = flag.Int("port", 2222, "ssh server port")
 		connection = flag.String("connection", "unix:"+con, "common connection")
 		renderer   = flag.String("renderer", "ssh3dclient", "path to renderer")
+		keyFile    = flag.String("key", "", "path to host key file")
 	)
 
 	cs := newServer(*connection)
@@ -114,6 +115,10 @@ func main() {
 	s := &ssh.Server{
 		Addr:    fmt.Sprintf(":%d", *port),
 		Handler: h.sshHandle,
+	}
+
+	if *keyFile != "" {
+		s.SetOption(ssh.HostKeyFile(*keyFile))
 	}
 
 	sshDied := make(chan struct{})
