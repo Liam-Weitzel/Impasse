@@ -15,7 +15,7 @@ You need a working Go dev enviroment installed on your system.
 This software was developed and tested under GNU/Linux systems.
 Other unixoid systems may work also.
 You need a SDL2 library on your system with `offscreen` rendering compiled in.
-It' very unlikely that the SDL2 version coming with your distribution does
+It's very unlikely that the SDL2 version coming with your distribution does
 have it enabled. Therefore we are going to compile it ourselves:
 
 ```
