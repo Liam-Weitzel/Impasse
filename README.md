@@ -36,9 +36,9 @@ make install
 cd ../..
 ```
 
-As `go-sdl2` needs to compile the bindings to SDL2. So, please,
-clean your Go cache before to prevent interfering with a possible
-pre-installed and used system SDL2 installation:
+`go-sdl2` needs to compile the bindings to SDL2. To prevent
+interfering with a possible pre-installed and used SDL2 installation,
+clean your Go cache, please.
 ```
 go clean -cache
 ```
