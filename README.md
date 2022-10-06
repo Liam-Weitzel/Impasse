@@ -73,7 +73,7 @@ To connect to the server:
 ssh -p2222 localhost -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking=no"
 ```
 
-The `UserKnownHostsFile` and `StrictHostKeyChecking` are only used to not take
+The `UserKnownHostsFile` and `StrictHostKeyChecking` options are only used to not take
 the temporary SSH server too seriously.
 
 # License
