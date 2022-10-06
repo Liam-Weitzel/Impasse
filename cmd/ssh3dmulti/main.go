@@ -20,6 +20,7 @@ import (
 type handler struct {
 	renderer string
 	args     []string
+	maxCons  int
 	server   *server
 }
 
@@ -29,6 +30,12 @@ func setWinsize(f *os.File, w, h int) {
 }
 
 func (h *handler) sshHandle(s ssh.Session) {
+
+	if h.maxCons > 0 && h.server.numConnections() >= h.maxCons {
+		fmt.Fprintf(s, "Max number of connections (%d) reached. Try again later.\n",
+			h.maxCons)
+		return
+	}
 
 	ptyReq, winCh, isPty := s.Pty()
 	if !isPty {
@@ -87,6 +94,7 @@ func main() {
 	var (
 		port       = flag.Int("port", 2222, "ssh server port")
 		connection = flag.String("connection", "unix:"+con, "common connection")
+		maxCons    = flag.Int("maxcons", 0, "max number of connections")
 		renderer   = flag.String("renderer", "ssh3dclient", "path to renderer")
 		keyFile    = flag.String("key", "", "path to host key file")
 	)
@@ -109,6 +117,7 @@ func main() {
 	h := handler{
 		renderer: *renderer,
 		args:     flag.Args(),
+		maxCons:  *maxCons,
 		server:   cs,
 	}
 

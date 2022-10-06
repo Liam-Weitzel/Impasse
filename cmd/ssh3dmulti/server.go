@@ -24,6 +24,16 @@ func newServer(connection string) *server {
 	}
 }
 
+func (s *server) numConnections() (num int) {
+	done := make(chan struct{})
+	s.cmds <- func(s *server) {
+		num = len(s.cons)
+		close(done)
+	}
+	<-done
+	return
+}
+
 func (s *server) newID() (id uint64) {
 	done := make(chan struct{})
 	s.cmds <- func(s *server) {
