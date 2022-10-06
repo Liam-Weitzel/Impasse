@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"math"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/go-gl/mathgl/mgl32"
@@ -28,7 +29,7 @@ func (c *client) resize() {
 
 	c.updateProjection(aspect)
 
-	c.dirty = true
+	c.setDirty()
 }
 
 func (c *client) incFOV() {
@@ -51,60 +52,65 @@ func (c *client) decFOV() {
 	}
 }
 
+func (c *client) setDirty() {
+	c.dirty = true
+	c.lastAction = time.Now()
+}
+
 func (c *client) forward() {
 	c.camera.Forward(stepWidth)
-	c.dirty = true
+	c.setDirty()
 	c.connection.sendPos(c.userID, c.camera.Position)
 }
 
 func (c *client) strafeLeft() {
 	c.camera.StrafeLeft(stepWidth)
-	c.dirty = true
+	c.setDirty()
 	c.connection.sendPos(c.userID, c.camera.Position)
 }
 
 func (c *client) backward() {
 	c.camera.Backward(stepWidth)
-	c.dirty = true
+	c.setDirty()
 	c.connection.sendPos(c.userID, c.camera.Position)
 }
 
 func (c *client) strafeRight() {
 	c.camera.StrafeRight(stepWidth)
-	c.dirty = true
+	c.setDirty()
 	c.connection.sendPos(c.userID, c.camera.Position)
 }
 
 func (c *client) up() {
 	c.camera.Up(stepWidth)
-	c.dirty = true
+	c.setDirty()
 	c.connection.sendPos(c.userID, c.camera.Position)
 }
 
 func (c *client) down() {
 	c.camera.Down(stepWidth)
-	c.dirty = true
+	c.setDirty()
 	c.connection.sendPos(c.userID, c.camera.Position)
 }
 
 func (c *client) rotateLeft() {
 	c.camera.RotateLeft(mgl32.DegToRad(rotAngel))
-	c.dirty = true
+	c.setDirty()
 }
 
 func (c *client) rotateRight() {
 	c.camera.RotateRight(mgl32.DegToRad(rotAngel))
-	c.dirty = true
+	c.setDirty()
 }
 
 func (c *client) rotateUp() {
 	c.camera.RotateUp(mgl32.DegToRad(rotAngel))
-	c.dirty = true
+	c.setDirty()
 }
 
 func (c *client) rotateDown() {
 	c.camera.RotateDown(mgl32.DegToRad(rotAngel))
-	c.dirty = true
+	c.setDirty()
 }
 
 func (c *client) randomPos() {
@@ -121,7 +127,7 @@ func (c *client) randomPos() {
 		}
 	}
 	c.camera.Angle = angle
-	c.dirty = true
+	c.setDirty()
 	c.connection.sendPos(c.userID, c.camera.Position)
 }
 

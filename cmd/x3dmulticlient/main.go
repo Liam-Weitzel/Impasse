@@ -94,8 +94,10 @@ func connectionParams() (string, uint64, error) {
 
 func main() {
 	var (
-		sceneFile = flag.String("scene", "scene.x3d.gz", "X3D scene to load")
-		logFile   = flag.String("log", "", "Log file")
+		sceneFile       = flag.String("scene", "scene.x3d.gz", "X3D scene to load")
+		logFile         = flag.String("log", "", "Log file")
+		idleDuration    = flag.Duration("idle", 0, "idle duration")
+		sessionDuration = flag.Duration("duration", 0, "session duration")
 	)
 	flag.Parse()
 
@@ -112,7 +114,10 @@ func main() {
 				return startClient(
 					scene, directory,
 					connection, userID,
-					screen, window)
+					screen, window,
+					(*idleDuration).Abs(),
+					(*sessionDuration).Abs(),
+				)
 			})
 		})
 	}

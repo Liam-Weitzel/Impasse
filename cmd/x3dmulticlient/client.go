@@ -65,6 +65,10 @@ type client struct {
 	rnd *rand.Rand
 
 	sphere *opengl.Sphere
+
+	idleDuration    time.Duration
+	sessionDuration time.Duration
+	lastAction      time.Time
 }
 
 func (c *client) allocFrameBuffer(w, h int) error {
@@ -87,6 +91,8 @@ func startClient(
 	scene *x3d.Scene, directory string,
 	connection string, userID uint64,
 	screen tcell.Screen, window *sdl.Window,
+	idleDuration time.Duration,
+	sessionDuration time.Duration,
 ) error {
 
 	con, err := newConnection(connection)
@@ -98,14 +104,16 @@ func startClient(
 	con.run(conDone)
 
 	c := &client{
-		scene:      scene,
-		fov:        defaultFOV,
-		directory:  directory,
-		window:     window,
-		screen:     screen,
-		userID:     userID,
-		connection: con,
-		attendees:  make(map[uint64]*attendee),
+		scene:           scene,
+		fov:             defaultFOV,
+		directory:       directory,
+		window:          window,
+		screen:          screen,
+		userID:          userID,
+		connection:      con,
+		attendees:       make(map[uint64]*attendee),
+		idleDuration:    idleDuration,
+		sessionDuration: sessionDuration,
 	}
 
 	//log.Printf("connection: %s\n", connection)
@@ -237,12 +245,28 @@ func (c *client) run() error {
 
 	go batching(events, keys, keyboardConvert)
 
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	start := time.Now()
+
+	c.lastAction = start
+
 	for c.dirty = true; !c.quit; {
 		if c.dirty {
 			c.dirty = false
 			c.render()
 		}
 		select {
+		case now := <-ticker.C:
+			if c.idleDuration > 0 {
+				if c.lastAction.Add(c.idleDuration).Before(now) {
+					c.quit = true
+				}
+			}
+			if !c.quit && c.sessionDuration > 0 && now.Sub(start) > c.sessionDuration {
+				c.quit = true
+			}
 		case k, ok := <-keys:
 			if !ok {
 				break
