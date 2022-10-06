@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	stepWidth = 4
+	stepWidth = 8
 	rotAngel  = 5
 )
 
