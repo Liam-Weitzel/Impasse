@@ -4,6 +4,8 @@ Demonstration of a SSH server with does interactive 3D renderings
 in the terminal when connected to. Connected clients
 can see each other. See a video of it on [YouTube](https://youtu.be/5PbXXZQdPrc).
 
+**We have a [demo server](./docs/demo.md) where you can try it yourself.**
+
 ![screen shot](./images/screenshot.png "Screen shot")
 
 
