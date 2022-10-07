@@ -1,3 +1,0 @@
-Calculate Minimal Bounding Sphere of Frustum:
-
-https://lxjk.github.io/2017/04/15/Calculate-Minimal-Bounding-Sphere-of-Frustum.html
