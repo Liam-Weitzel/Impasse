@@ -1,7 +1,7 @@
 # Demo Server
 
 We have a demo server at `slt-play.intevation.de` running on port `2222`. 
-You can reach it without any password or certificate with:
+You can connect it **without any passphrase or key**:
 ```
 ssh -p 2222 slt-play.intevation.de
 ```
@@ -9,7 +9,7 @@ The fingerpint is `SHA256:PDwMjwl8UUFz09LszWaBpNKhCheuTXojbwj0a21cXCI`.
 You can suppress the check by adding `-o "StrictHostKeyChecking=no"`
 to the call above.
 
-As this server runs only on hardware with limited ressources we are restricting
+As this server runs on hardware with limited ressources we are restricting
 the access a bit:
 - The server accepts only 30 users being logged in at once.
 - You will be kicked from the server if you do nothing for 90 seconds.
