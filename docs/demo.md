@@ -26,8 +26,8 @@ the `ssh` call:
 ```
 COLORTERM=truecolor ssh -p 2222 slt-play.intevation.de -o 'SendEnv COLORTERM'
 ```
-This is also recommended if you use [Konsole](https://konsole.kde.org/) KDE's terminal emulator
-or [QTerminal](https://github.com/lxqt/qterminal).
+This is also recommended if you use [Konsole](https://konsole.kde.org/) KDE's terminal emulator,
+[QTerminal](https://github.com/lxqt/qterminal) or [Alacritty](https://alacritty.org/).
 
 It is reported that the usage of terminals from the  [RXVT family](https://rxvt.sourceforge.net/)
 do not lead to good results.
