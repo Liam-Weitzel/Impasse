@@ -30,5 +30,5 @@ This is also recommended if you use [Konsole](https://konsole.kde.org/) KDE's te
 [QTerminal](https://github.com/lxqt/qterminal) or [Alacritty](https://alacritty.org/).
 
 It is reported that the usage of terminals from the  [RXVT family](https://rxvt.sourceforge.net/)
-do not lead to good results.
+does not lead to good results.
 
