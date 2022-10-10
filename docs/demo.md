@@ -16,7 +16,7 @@ the access a bit:
 
 ## YMMV ... choose a fast terminal emulator
 
-You need a fast terminal emulator to have a good user experience.
+**You need a fast terminal emulator with truecolor support to have a good user experience.**
 [kitty](https://sw.kovidgoyal.net/kitty/) is a good choice.
 
 If you use a VTE-based terminal like the [GNOME terminal](https://wiki.gnome.org/Apps/Terminal) or
