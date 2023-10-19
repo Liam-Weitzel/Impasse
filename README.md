@@ -21,7 +21,7 @@ It's very unlikely that the SDL2 version coming with your distribution does
 have it enabled. Therefore we are going to compile it ourselves:
 
 ```
-export SDL_VERSION=2.26.1
+export SDL_VERSION=2.28.4
 
 cd $HOME
 mkdir -p devel/sdl2/custom
