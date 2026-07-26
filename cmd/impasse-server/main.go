@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -70,6 +72,57 @@ func setWinsize(f *os.File, w, h int) {
 		uintptr(unsafe.Pointer(&struct{ h, w, x, y uint16 }{uint16(h), uint16(w), 0, 0})))
 }
 
+// winWatch hands window changes to whatever currently owns the screen.
+//
+// A session reports resizes on one channel for its whole life, but two things
+// own the screen in turn: the menu and then the renderer. Letting each range
+// over that channel directly means both are reading it at once, and every
+// resize goes to exactly one of them, so the renderer misses about half of
+// them and the picture stops matching the terminal.
+//
+// One reader owns the channel instead, and the current owner registers with
+// watch.
+type winWatch struct {
+	mu   sync.Mutex
+	fn   func(ssh.Window)
+	last ssh.Window
+}
+
+// newWinWatch starts reading ch. initial is the size from the pty request,
+// which the channel itself never reports.
+func newWinWatch(initial ssh.Window, ch <-chan ssh.Window) *winWatch {
+	w := &winWatch{last: initial}
+
+	go func() {
+		for win := range ch {
+			w.mu.Lock()
+			w.last = win
+			fn := w.fn
+			w.mu.Unlock()
+
+			if fn != nil {
+				fn(win)
+			}
+		}
+	}()
+
+	return w
+}
+
+// watch makes fn the current owner and hands it the size straight away, so
+// something taking over does not have to wait for the next resize to learn how
+// big the terminal is. A nil fn means nobody is watching.
+func (w *winWatch) watch(fn func(ssh.Window)) {
+	w.mu.Lock()
+	w.fn = fn
+	last := w.last
+	w.mu.Unlock()
+
+	if fn != nil {
+		fn(last)
+	}
+}
+
 // runMenu shows the pre-game menu and reports whether the player chose to play.
 // runMenu shows the pre-game menu and returns the account to play as, or nil
 // if the player quit or never signed in.
@@ -78,7 +131,7 @@ func (h *handler) runMenu(
 	fingerprint string,
 	acc *account,
 	ptyReq ssh.Pty,
-	winCh <-chan ssh.Window,
+	wins *winWatch,
 ) *account {
 	// Over SSH there is no local terminal to probe, so the colour profile
 	// comes from what the client told us.
@@ -100,18 +153,14 @@ func (h *handler) runMenu(
 	)
 
 	// bubbletea cannot size a non tty by itself, so feed it the pty size and
-	// every resize the client reports.
-	sizes := make(chan struct{})
-	go func() {
-		defer close(sizes)
-		program.Send(tea.WindowSizeMsg{
-			Width:  ptyReq.Window.Width,
-			Height: ptyReq.Window.Height,
-		})
-		for win := range winCh {
-			program.Send(tea.WindowSizeMsg{Width: win.Width, Height: win.Height})
-		}
-	}()
+	// every resize the client reports. Registering hands over the current size
+	// immediately, so there is no separate opening send.
+	wins.watch(func(win ssh.Window) {
+		program.Send(tea.WindowSizeMsg{Width: win.Width, Height: win.Height})
+	})
+	// The menu is done with the screen when this returns, and must stop taking
+	// resizes, or the renderer never sees them.
+	defer wins.watch(nil)
 
 	final, err := program.Run()
 	if err != nil {
@@ -158,11 +207,15 @@ func (h *handler) sshHandle(s ssh.Session) {
 		return
 	}
 
+	// One reader for the session's resizes, handed to the menu and then to the
+	// renderer.
+	wins := newWinWatch(ptyReq.Window, winCh)
+
 	// The menu runs here in the server, because it needs the store and the
 	// live world. It also owns signing in, so it is what turns a session into
 	// a player. The renderer is a separate process and only gets spawned once
 	// the player has actually chosen to play.
-	acc = h.runMenu(s, fp, acc, ptyReq, winCh)
+	acc = h.runMenu(s, fp, acc, ptyReq, wins)
 	if acc == nil {
 		return
 	}
@@ -186,7 +239,12 @@ func (h *handler) sshHandle(s ssh.Session) {
 		fmt.Sprintf("IMPASSE_CONNECTION=%s", h.server.connection()),
 		fmt.Sprintf("IMPASSE_TOKEN=%s", h.server.accounts.sessionToken(acc)))
 
-	f, err := pty.Start(cmd)
+	// Sized at creation. A pty started without a size is 0x0, and the renderer
+	// would draw at whatever it falls back to until the first resize arrives.
+	f, err := pty.StartWithSize(cmd, &pty.Winsize{
+		Cols: uint16(ptyReq.Window.Width),
+		Rows: uint16(ptyReq.Window.Height),
+	})
 	if err != nil {
 		io.WriteString(s, fmt.Sprintf("failed to initialize pseudo-terminal: %s\n", err))
 		s.Exit(1)
@@ -194,11 +252,11 @@ func (h *handler) sshHandle(s ssh.Session) {
 	}
 	defer f.Close()
 
-	go func() {
-		for win := range winCh {
-			setWinsize(f, win.Width, win.Height)
-		}
-	}()
+	// The renderer owns the screen now. Registering also applies the current
+	// size, which catches a resize made while the menu was up.
+	wins.watch(func(win ssh.Window) {
+		setWinsize(f, win.Width, win.Height)
+	})
 
 	go func() {
 		io.Copy(f, s)
@@ -218,7 +276,7 @@ func main() {
 	con := filepath.Join(dir, "impasse.sock")
 
 	var (
-		port       = flag.Int("port", 2222, "ssh server port")
+		port       = flag.Int("port", 22, "ssh server port")
 		connection = flag.String("connection", "unix:"+con, "renderer socket")
 		botAddr    = flag.String("bots", ":2223", "bot API address, empty to disable")
 		maxCons    = flag.Int("maxcons", 0, "max number of connections")
@@ -326,16 +384,24 @@ func main() {
 	go func() {
 		defer close(sshDied)
 		if err := s.ListenAndServe(); err != nil {
+			if errors.Is(err, os.ErrPermission) && *port < 1024 {
+				log.Printf("cannot bind port %d: ports below 1024 need root or "+
+					"setcap cap_net_bind_service+ep on this binary\n", *port)
+			}
 			log.Printf("error: %v\n", err)
 		}
 	}()
 
+	// SIGTERM as well as Ctrl-C. Closing the unix listener is what unlinks
+	// impasse.sock, so a plain kill that skips this leaves the file behind and
+	// the next start fails with "address already in use". os.Kill is not here
+	// because SIGKILL cannot be caught, and nothing can be cleaned up after it.
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, os.Kill)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	select {
 	case <-sigChan:
-		log.Println("killed by Ctrl-C")
+		log.Println("signal received, shutting down")
 	case <-sshDied:
 		log.Println("ssh server died")
 	case <-connectionDied:

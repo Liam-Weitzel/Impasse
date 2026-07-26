@@ -22,14 +22,23 @@ export IMPASSE_GITHUB_CLIENT_ID=Ov23li...
 ./bin/impasse-server --map maps/vault.txt
 ```
 
+It listens on port 22, so it needs either root or the capability to bind a low port:
+
+```sh
+sudo setcap cap_net_bind_service+ep bin/impasse-server
+```
+
+That has to be redone after every rebuild, since it is set on the file. Use `--port` for
+an unprivileged port instead.
+
 Connect as a human. No SSH key needed:
 
 ```sh
-ssh -p2222 localhost -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking=no"
+ssh localhost -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking=no"
 ```
 
 Sign in with GitHub when the menu asks, then fetch a bot token from the menu or with
-`ssh -p2222 localhost token`, and run a bot:
+`ssh localhost token`, and run a bot:
 
 ```sh
 python3 examples/bot.py --address 127.0.0.1:2223 --token <token>
@@ -47,7 +56,7 @@ terminals like GNOME and XFCE, set `COLORTERM=truecolor` and add
 | Flag | Meaning |
 | --- | --- |
 | `--map` | ASCII map to load |
-| `--port` | SSH port, default 2222 |
+| `--port` | SSH port, default 22 |
 | `--bots` | Bot API address, default `:2223`, empty to disable |
 | `--db` | Score database, default `impasse.db` |
 | `--match` | Match length, default 2m |
@@ -242,10 +251,15 @@ The atlas UV rectangle is inset, because linear filtering otherwise reaches into
 neighbouring tile and draws a bright seam along every cell edge. Mipmaps are off for the
 same reason at distance.
 
-Players and pickups are diamonds, drawn untextured in solid colour so they read against
-whatever the ground is doing. Pickups spin and bob. The stun telegraph is a frame rather
-than a filled square, so it does not hide whoever is standing in it, and it swells
-across its tick.
+Players are spheres and pickups are diamonds, drawn untextured in solid colour so they
+read against whatever the ground is doing, and so the two never read as the same object.
+Pickups spin and bob. The stun telegraph is a frame rather than a filled square, so it
+does not hide whoever is standing in it, and it swells across its tick.
+
+A terminal cell is a 4x8 patch of the framebuffer, so the renderer asks for exactly four
+times the column count by eight times the row count. Above 1360x768 pixels, meaning
+about 340 columns by 96 rows, it stops growing and the patches get resampled instead,
+which is softer than an exact fit.
 
 Geometry is built one 16x16 block of cells at a time and chunks outside the view frustum
 are dropped every frame. On a 200x120 map that draws about 6 chunks out of 208. The test
