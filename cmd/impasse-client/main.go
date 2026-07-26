@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"time"
 
 	"github.com/Liam-Weitzel/Impasse/gfx"
 	"github.com/Liam-Weitzel/Impasse/proto"
@@ -62,9 +63,11 @@ func connectionParams() (address, token string, err error) {
 
 func main() {
 	var (
-		logFile         = flag.String("log", "", "Log file")
-		idleDuration    = flag.Duration("idle", 0, "idle duration")
-		sessionDuration = flag.Duration("duration", 0, "session duration")
+		logFile = flag.String("log", "", "Log file")
+		// On by default. A session left open holds a place and keeps burning
+		// upload for a picture nobody is watching.
+		idleDuration    = flag.Duration("idle", 5*time.Minute, "drop a session after this long with no input, 0 to never")
+		sessionDuration = flag.Duration("duration", 2*time.Hour, "drop a session after this long, 0 to never")
 		tiles           = flag.String("tiles", "",
 			"PNG tile atlas, empty for the generated one")
 	)

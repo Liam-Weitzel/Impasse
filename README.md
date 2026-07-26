@@ -123,9 +123,29 @@ terminals like GNOME and XFCE, set `COLORTERM=truecolor` and add
 | `--intermission` | Break between matches, default 15s |
 | `--github-client-id` | Also read from `IMPASSE_GITHUB_CLIENT_ID` |
 | `--github-client-id-file` | Read the client id from a file, for systemd credentials |
+| `--maxcons` | Players in the game at once, default 16, 0 for no limit |
 
 Renderer flags go after `--` and are passed through: `-tiles` for a replacement tile
-atlas, `-log` for a log file, `-idle` and `-duration` for session limits.
+atlas, `-log` for a log file, `-idle` and `-duration` for session limits. Sessions are
+dropped after 5 minutes idle and 2 hours total by default, since an abandoned session
+holds a place and keeps consuming upload.
+
+### Exposing it to the internet
+
+A session in the game costs about one CPU core and 40 Mbit/s of upload at a 200x50
+terminal, or 11 Mbit/s at 100x30. Upload is usually what runs out first, so `--maxcons`
+is set to 16 rather than unlimited: turning people away with a message keeps the game
+playable for whoever is already in.
+
+The renderer only receives `TERM`, `COLORTERM`, `LANG` and `LC_*` from the client. An SSH
+client may request any environment variable it likes, and the renderer runs as the
+server's user, so passing them through would let a stranger set `LD_PRELOAD` and choose
+what code gets loaded. It is an allowlist rather than a denylist because the set of
+variables that change how a program loads is long and grows.
+
+Run it as its own user with no access to anything else, which is what the NixOS module
+does. Nothing in the game authenticates before a session is accepted, so anyone who can
+reach the port gets a process spawned on their behalf.
 
 ### Building without nix
 

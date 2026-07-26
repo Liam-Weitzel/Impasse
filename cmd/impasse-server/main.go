@@ -34,6 +34,42 @@ type handler struct {
 	maxCons  int
 	server   *server
 	botAddr  string
+
+	// sessions caps how many people can be in the game at once.
+	sessions *sessionLimit
+}
+
+// sessionLimit counts the sessions currently holding a place.
+//
+// This counts SSH sessions rather than protocol connections, because the cost
+// is the renderer process behind a session, and a session holds its place from
+// the menu until it disconnects.
+type sessionLimit struct {
+	mu  sync.Mutex
+	n   int
+	max int
+}
+
+// enter takes a place if there is one. It reports the current count either way,
+// so a refusal can say how busy the server is.
+func (l *sessionLimit) enter() (int, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.max > 0 && l.n >= l.max {
+		return l.n, false
+	}
+	l.n++
+	return l.n, true
+}
+
+func (l *sessionLimit) leave() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.n > 0 {
+		l.n--
+	}
 }
 
 // contextKeyFingerprint is where the public key handler leaves the key the
@@ -275,11 +311,17 @@ func (h *handler) sshHandle(s ssh.Session) {
 		return
 	}
 
-	if h.maxCons > 0 && h.server.numConnections() >= h.maxCons {
-		fmt.Fprintf(s, "Max number of connections (%d) reached. Try again later.\n",
-			h.maxCons)
+	// Every session that reaches the game costs a renderer process, about a
+	// core, and a large share of the server's upload. Turning people away
+	// politely keeps the game playable for whoever is already in, which matters
+	// most at exactly the moment the game gets attention.
+	if n, ok := h.sessions.enter(); !ok {
+		fmt.Fprintf(s, "\r\nImpasse is full: %d of %d playing.\r\n\r\n"+
+			"Matches are two minutes, so a place should come up shortly.\r\n"+
+			"Try again in a minute.\r\n\r\n", n, h.maxCons)
 		return
 	}
+	defer h.sessions.leave()
 
 	ptyReq, winCh, isPty := s.Pty()
 	if !isPty {
@@ -331,9 +373,9 @@ func (h *handler) play(
 		cmdCtx, h.renderer,
 		h.args...)
 
-	// Start from our own environment so the renderer inherits things like
-	// the GL/SDL library paths, then let the session env override it.
-	cmd.Env = append(os.Environ(), s.Environ()...)
+	// Start from our own environment so the renderer inherits things like the
+	// GL/SDL library paths, then add the few client variables that are safe.
+	cmd.Env = append(os.Environ(), safeEnv(s.Environ())...)
 
 	// The renderer is a separate process and cannot present the player's key
 	// itself, so it gets a one shot token instead. A fresh one every time,
@@ -378,6 +420,39 @@ func (h *handler) play(
 	// to go on. Anything but the one code means the session is over.
 	var exit *exec.ExitError
 	return errors.As(err, &exit) && exit.ExitCode() == proto.ExitToMenu
+}
+
+// safeEnv picks the client supplied variables the renderer is allowed to see.
+//
+// Anyone on the internet can open a session, and an SSH client may ask for any
+// environment variable it likes. Passing those straight to a process running as
+// the server's user hands a stranger the dynamic loader: LD_PRELOAD and
+// LD_LIBRARY_PATH decide which code gets loaded, and PATH decides which
+// binaries get run. An allowlist rather than a denylist, because the list of
+// variables that change how a program loads is long and grows.
+//
+// Only what the renderer actually needs to draw correctly is let through.
+// Colour comes from TERM and COLORTERM, and the locale settings decide how
+// text is encoded.
+func safeEnv(env []string) []string {
+	allowed := map[string]bool{
+		"TERM":      true,
+		"COLORTERM": true,
+		"LANG":      true,
+	}
+
+	var out []string
+	for _, kv := range env {
+		name, _, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		// LC_ALL, LC_CTYPE and the rest are a family rather than a fixed set.
+		if allowed[name] || strings.HasPrefix(name, "LC_") {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // hostKey loads the server's SSH host key, making one on first run.
@@ -465,10 +540,12 @@ func main() {
 		port       = flag.Int("port", 22, "ssh server port")
 		connection = flag.String("connection", "unix:"+con, "renderer socket")
 		botAddr    = flag.String("bots", ":2223", "bot API address, empty to disable")
-		maxCons    = flag.Int("maxcons", 0, "max number of connections")
-		renderer   = flag.String("renderer", "impasse-client", "path to renderer")
-		mapFile    = flag.String("map", "maps/open.txt", "path to the ASCII map")
-		keyFile    = flag.String("key", filepath.Join(dir, "impasse_host_key"),
+		// Each session in the game costs roughly a core and a large slice of
+		// upload, so the ceiling is low on purpose. 0 removes it.
+		maxCons  = flag.Int("maxcons", 16, "players allowed in the game at once, 0 for no limit")
+		renderer = flag.String("renderer", "impasse-client", "path to renderer")
+		mapFile  = flag.String("map", "maps/open.txt", "path to the ASCII map")
+		keyFile  = flag.String("key", filepath.Join(dir, "impasse_host_key"),
 			"SSH host key file, generated on first run")
 		dbFile     = flag.String("db", "impasse.db", "path to the score database")
 		ghClientID = flag.String("github-client-id", "",
@@ -555,6 +632,7 @@ func main() {
 		maxCons:  *maxCons,
 		server:   cs,
 		botAddr:  *botAddr,
+		sessions: &sessionLimit{max: *maxCons},
 	}
 
 	s := &ssh.Server{
