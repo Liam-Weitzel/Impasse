@@ -59,7 +59,7 @@ func (h *handler) sshHandle(s ssh.Session) {
 	// arrives in the welcome message, so it is not passed here.
 	cmd.Env = append(cmd.Env,
 		fmt.Sprintf("TERM=%s", ptyReq.Term),
-		fmt.Sprintf("IMPASSE_CONNECTION=%s", h.server.connection))
+		fmt.Sprintf("IMPASSE_CONNECTION=%s", h.server.connection()))
 
 	f, err := pty.Start(cmd)
 	if err != nil {
@@ -94,7 +94,8 @@ func main() {
 
 	var (
 		port       = flag.Int("port", 2222, "ssh server port")
-		connection = flag.String("connection", "unix:"+con, "common connection")
+		connection = flag.String("connection", "unix:"+con, "renderer socket")
+		botAddr    = flag.String("bots", ":2223", "bot API address, empty to disable")
 		maxCons    = flag.Int("maxcons", 0, "max number of connections")
 		renderer   = flag.String("renderer", "impasse-client", "path to renderer")
 		mapFile    = flag.String("map", "maps/test.txt", "path to the ASCII map")
@@ -117,7 +118,12 @@ func main() {
 		log.Printf("warning: %d cells cannot be reached from the spawn\n", sealed)
 	}
 
-	cs := newServer(*connection, w)
+	addrs := []string{*connection}
+	if *botAddr != "" {
+		addrs = append(addrs, *botAddr)
+	}
+
+	cs := newServer(w, addrs...)
 
 	done := make(chan struct{})
 

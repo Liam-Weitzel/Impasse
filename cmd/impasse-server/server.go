@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -25,21 +26,33 @@ type conn struct {
 }
 
 type server struct {
-	connection string
-	listener   net.Listener
-	cmds       chan func(*server)
-	cons       map[net.Conn]*conn
-	world      *world
-	quit       bool
+	// addrs are every endpoint to accept on. The renderer talks over a unix
+	// socket and bots over TCP, but it is one protocol and one world, so a
+	// bot and a human are the same thing to everything below this line.
+	addrs     []string
+	listeners []net.Listener
+
+	cmds  chan func(*server)
+	cons  map[net.Conn]*conn
+	world *world
+	quit  bool
 }
 
-func newServer(connection string, w *world) *server {
+func newServer(w *world, addrs ...string) *server {
 	return &server{
-		connection: connection,
-		cmds:       make(chan func(*server)),
-		cons:       make(map[net.Conn]*conn),
-		world:      w,
+		addrs: addrs,
+		cmds:  make(chan func(*server)),
+		cons:  make(map[net.Conn]*conn),
+		world: w,
 	}
+}
+
+// connection is the endpoint the renderer should dial, which is the first one.
+func (s *server) connection() string {
+	if len(s.addrs) == 0 {
+		return ""
+	}
+	return s.addrs[0]
 }
 
 func (s *server) numConnections() (num int) {
@@ -176,39 +189,66 @@ func (s *server) newConnection(nc net.Conn) {
 
 func (s *server) doQuit() { s.quit = true }
 
-func (s *server) accept() {
+func (s *server) accept(l net.Listener, done chan struct{}) {
 	for {
-		nc, err := s.listener.Accept()
+		nc, err := l.Accept()
 		if err != nil {
-			s.cmds <- (*server).doQuit
+			select {
+			case <-done:
+				// Expected, the listener was closed on the way out.
+			default:
+				log.Printf("accept on %s: %v\n", l.Addr(), err)
+				select {
+				case s.cmds <- (*server).doQuit:
+				case <-done:
+				}
+			}
 			return
 		}
 		s.newConnection(nc)
 	}
 }
 
-func (s *server) listen() error {
-	var network, addr string
-	idx := strings.IndexRune(s.connection, ':')
-	if idx < 0 {
-		network = "unix"
-		addr = s.connection
-	} else {
-		network = s.connection[:idx]
-		addr = s.connection[idx+1:]
+// parseAddr splits a "network:address" string. A bare address is TCP, so
+// ":2223" works without ceremony.
+func parseAddr(s string) (network, addr string) {
+	switch {
+	case strings.HasPrefix(s, "unix:"):
+		return "unix", strings.TrimPrefix(s, "unix:")
+	case strings.HasPrefix(s, "tcp:"):
+		return "tcp", strings.TrimPrefix(s, "tcp:")
+	default:
+		return "tcp", s
 	}
+}
 
-	listener, err := net.Listen(network, addr)
-	if err != nil {
-		return err
+func (s *server) listen() error {
+	for _, a := range s.addrs {
+		network, addr := parseAddr(a)
+		l, err := net.Listen(network, addr)
+		if err != nil {
+			s.closeListeners()
+			return fmt.Errorf("listening on %s: %w", a, err)
+		}
+		log.Printf("listening on %s\n", a)
+		s.listeners = append(s.listeners, l)
 	}
-	s.listener = listener
+	if len(s.listeners) == 0 {
+		return errors.New("no addresses to listen on")
+	}
 	return nil
+}
+
+func (s *server) closeListeners() {
+	for _, l := range s.listeners {
+		l.Close()
+	}
+	s.listeners = nil
 }
 
 func (s *server) shutdown() {
 	log.Println("shutdown")
-	s.listener.Close()
+	s.closeListeners()
 }
 
 func (s *server) run(done chan struct{}) error {
@@ -218,9 +258,11 @@ func (s *server) run(done chan struct{}) error {
 	}
 	defer s.shutdown()
 
-	go s.accept()
+	for _, l := range s.listeners {
+		go s.accept(l, done)
+	}
 
-	ticker := time.NewTicker(TickDuration)
+	ticker := time.NewTicker(s.world.tickDuration)
 	defer ticker.Stop()
 
 	for !s.quit {

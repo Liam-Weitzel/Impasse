@@ -100,6 +100,12 @@ type world struct {
 	hasMarker bool
 	tick      uint64
 	nextID    uint64
+
+	// tickDuration is how long a tick lasts. It lives here rather than being
+	// read straight from the constant so that the value the server ticks at
+	// and the value it tells clients can never drift apart, and so tests can
+	// run the loop fast.
+	tickDuration time.Duration
 }
 
 func loadWorld(path string) (*world, error) {
@@ -142,7 +148,8 @@ func loadWorld(path string) (*world, error) {
 		walkable:   len(g.Walkables()),
 		// What players can get to is defined by where they start, so
 		// measure from the spawn rather than from the largest region.
-		reachable: len(g.Reachable(spawn)),
+		reachable:    len(g.Reachable(spawn)),
+		tickDuration: TickDuration,
 	}, nil
 }
 
@@ -364,7 +371,7 @@ func (w *world) welcome(p *player) proto.Welcome {
 	return proto.Welcome{
 		Type:              proto.TypeWelcome,
 		ID:                p.id,
-		TickMS:            int(TickDuration / time.Millisecond),
+		TickMS:            int(w.tickDuration / time.Millisecond),
 		LootTicks:         LootTicks,
 		StunTicks:         StunTicks,
 		StunCooldownTicks: StunCooldown,

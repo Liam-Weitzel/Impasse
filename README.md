@@ -114,8 +114,26 @@ map. `state` carries every player as of the last resolved tick, and is a full sn
 so a client that falls behind can drop stale ones and lose nothing. `queue` goes the
 other way and asks for an action on the next tick.
 
-One protocol, two listeners. Unix socket for SSH renderers now, TCP for bots later.
-That makes milestone 4 a listener rather than a second protocol.
+One protocol, two listeners. A unix socket for the SSH renderers and TCP for bots. A
+bot and a human are the same thing to the server: same handshake, same messages, same
+world, same tick. Nothing below the listener knows which it is talking to.
+
+`welcome` carries the player id, the tick length, the rules (loot ticks, stun ticks,
+cooldown and radius) and the map. Sending the rules rather than letting clients hardcode
+them means a client's display and the server's behaviour cannot drift apart.
+
+`state` is a full snapshot per tick: every player with position, score, channel, stun
+and cast state, plus the pickups still uncollected. Because it is a snapshot and not a
+delta, a client that falls behind can throw away stale ones and lose nothing.
+
+`queue` goes the other way and asks for an action on the next tick: a move with a
+direction, a loot, or a stun. Sending another before the tick locks replaces the first.
+
+Bots get raw cells, never a graph. Turning the map into something you can search is the
+bot author's job, and `examples/bot.py` shows the whole of it in about thirty lines.
+
+Neither transport has any authentication yet. Anyone who can reach the port can join.
+That is milestone 5.
 
 ### Rendering
 
@@ -186,11 +204,22 @@ almost never apply.
 The server warns at startup about cells that cannot be reached from the spawn, since
 that usually means a sealed off pocket rather than a deliberate choice.
 
-Connect:
+Connect as a human:
 
 ```sh
 ssh -p2222 localhost -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking=no"
 ```
+
+Or as a bot:
+
+```sh
+python3 examples/bot.py --address 127.0.0.1:2223
+```
+
+`examples/bot.py` walks to the nearest pickup and channels it. It is deliberately naive,
+and greedy nearest is a bad strategy, since everyone else is racing you to the same
+pickups. It exists to show the protocol, not to play well. Pass `--bots ""` to the
+server to turn the API off.
 
 Use a fast truecolor terminal such as kitty, Alacritty or Konsole. On VTE-based
 terminals like GNOME and XFCE, set `COLORTERM=truecolor` and add
@@ -288,19 +317,25 @@ Milestone 3, stun:
 * In-flight bursts are published and drawn as a floor patch over the 3x3 they will
   cover, with CASTING in the HUD.
 
-### Next
+Milestone 4, bot API:
 
-Milestone 4, bot API. Same NDJSON protocol on a TCP listener.
+* TCP listener alongside the unix socket, same protocol and same world.
+* The server takes a list of addresses rather than one, so transports are just
+  entries in that list.
+* `examples/bot.py`, a reference client that pathfinds and loots.
+* End to end tests over a real socket, covering the handshake, JSON on the wire,
+  movement, walls, looting, two clients seeing each other, disconnect cleanup and
+  malformed input. Both transports.
+
+### Next
 
 Milestone 5, identity. SSH public key as account, one active session per key.
 
 ### Known issues
 
-Nothing automated covers the socket path. `world_test.go` drives the simulation
-directly, so the welcome handshake, the JSON encoding and disconnect cleanup are only
-verified by hand. Worth an end to end test that spins the server on a temp socket and
-drives it with a real client, probably alongside milestone 4 when the same protocol
-gets a TCP listener.
+`go vet` panics inside its own `hostport` analyzer if you write
+`net.Dial(parseAddr(addr))`, spreading a two value call into the two parameters. Not our
+bug, but it takes the whole vet run down, so the tests split the call in two.
 
 The `geoms` flag threaded through `gfx.BlitRunes` into `NewRuneConverter` selects nine
 extra geometric block glyphs. Nothing passes `true` any more, since the only caller
