@@ -9,8 +9,7 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
-// testKey makes a fresh public key, standing in for a different player each
-// time it is called.
+// testKey makes a fresh public key, standing in for a different machine.
 func testKey(t *testing.T) ssh.PublicKey {
 	t.Helper()
 
@@ -25,34 +24,57 @@ func testKey(t *testing.T) ssh.PublicKey {
 	return key
 }
 
-// The same key is the same account every time, which is what makes a public key
-// usable as an identity with no registration step.
-func TestSameKeyIsSameAccount(t *testing.T) {
-	a := newAccounts()
-	key := testKey(t)
+// testUser makes a distinct GitHub user.
+var testUserID int64
 
-	first := a.forKey(key)
-	second := a.forKey(key)
+func testUser() GitHubUser {
+	testUserID++
+	return GitHubUser{ID: testUserID, Login: "user" + string(rune('a'+testUserID))}
+}
+
+// The same GitHub user is the same player every time. That is the rule the
+// whole design exists to enforce: one person, one player.
+func TestSameGitHubUserIsSameAccount(t *testing.T) {
+	a := newAccounts()
+	user := testUser()
+
+	first := a.forGitHub(user)
+	second := a.forGitHub(user)
 
 	if first != second {
-		t.Fatal("the same key produced two accounts")
+		t.Fatal("the same GitHub user produced two accounts")
 	}
 	if first.botToken == "" {
 		t.Error("account has no bot token")
 	}
 }
 
-func TestDifferentKeysAreDifferentAccounts(t *testing.T) {
+func TestDifferentGitHubUsersAreDifferentAccounts(t *testing.T) {
 	a := newAccounts()
 
-	one := a.forKey(testKey(t))
-	two := a.forKey(testKey(t))
+	one := a.forGitHub(testUser())
+	two := a.forGitHub(testUser())
 
 	if one == two {
-		t.Fatal("two keys shared an account")
+		t.Fatal("two GitHub users shared an account")
 	}
 	if one.botToken == two.botToken {
 		t.Error("two accounts shared a bot token")
+	}
+}
+
+// A renamed GitHub login must follow, since the numeric id is the identity.
+func TestLoginIsRefreshed(t *testing.T) {
+	a := newAccounts()
+
+	acc := a.forGitHub(GitHubUser{ID: 5, Login: "oldname"})
+	again := a.forGitHub(GitHubUser{ID: 5, Login: "newname"})
+
+	if again != acc {
+		t.Fatal("a rename made a new account")
+	}
+	if acc.githubLogin != "newname" {
+		t.Errorf("login %q, want it refreshed", acc.githubLogin)
 	}
 }
 
@@ -60,7 +82,7 @@ func TestDifferentKeysAreDifferentAccounts(t *testing.T) {
 // is worth spending on first use rather than leaving it valid forever.
 func TestSessionTokenIsOneShot(t *testing.T) {
 	a := newAccounts()
-	acc := a.forKey(testKey(t))
+	acc := a.forGitHub(testUser())
 
 	token := a.sessionToken(acc)
 
@@ -80,7 +102,7 @@ func TestSessionTokenIsOneShot(t *testing.T) {
 // player fetches a new one.
 func TestBotTokenIsReusable(t *testing.T) {
 	a := newAccounts()
-	acc := a.forKey(testKey(t))
+	acc := a.forGitHub(testUser())
 	token := a.botToken(acc)
 
 	for i := 0; i < 3; i++ {
@@ -113,11 +135,11 @@ func TestTokensAreUnique(t *testing.T) {
 }
 
 // The character belongs to the account and only goes when the last connection
-// driving it does. A player spectating their own bot has a renderer and a bot
+// driving it does. A player spectating their own bot has a terminal and a bot
 // on one character, and closing the terminal must not remove the character.
 func TestCharacterOutlivesOneOfTwoConnections(t *testing.T) {
 	a := newAccounts()
-	acc := a.forKey(testKey(t))
+	acc := a.forGitHub(testUser())
 
 	first, ok := a.attach(acc, kindBot)
 	if !ok || !first {
@@ -139,11 +161,10 @@ func TestCharacterOutlivesOneOfTwoConnections(t *testing.T) {
 	}
 }
 
-// One of each kind, and no more. Two terminals on one account would mean two
-// cameras on one character.
+// One of each kind, and no more.
 func TestOnlyOneOfEachKindPerAccount(t *testing.T) {
 	a := newAccounts()
-	acc := a.forKey(testKey(t))
+	acc := a.forGitHub(testUser())
 
 	if _, ok := a.attach(acc, kindRenderer); !ok {
 		t.Fatal("the first terminal was refused")
@@ -160,10 +181,9 @@ func TestOnlyOneOfEachKindPerAccount(t *testing.T) {
 	}
 }
 
-// Disconnecting frees the slot, so reconnecting after a dropped session works.
 func TestDetachFreesTheSlot(t *testing.T) {
 	a := newAccounts()
-	acc := a.forKey(testKey(t))
+	acc := a.forGitHub(testUser())
 
 	a.attach(acc, kindRenderer)
 	a.detach(acc, kindRenderer)
@@ -175,7 +195,7 @@ func TestDetachFreesTheSlot(t *testing.T) {
 
 func TestPlayerBinding(t *testing.T) {
 	a := newAccounts()
-	acc := a.forKey(testKey(t))
+	acc := a.forGitHub(testUser())
 
 	if _, ok := a.player(acc); ok {
 		t.Error("reported a character before one was attached")
@@ -196,5 +216,43 @@ func TestFingerprintIsStable(t *testing.T) {
 	}
 	if fingerprint(key) == fingerprint(testKey(t)) {
 		t.Error("two keys share a fingerprint")
+	}
+}
+
+// A player seen again after a restart keeps their token, so bots configured
+// before the restart still authenticate.
+func TestForGitHubReusesAStoredToken(t *testing.T) {
+	stored := map[int64]string{}
+
+	a := newAccounts()
+	a.loadToken = func(id int64) (string, bool) {
+		t, ok := stored[id]
+		return t, ok
+	}
+	a.saveToken = func(id int64, token string) error {
+		stored[id] = token
+		return nil
+	}
+
+	user := testUser()
+	first := a.forGitHub(user)
+
+	if stored[user.ID] != first.botToken {
+		t.Fatalf("token was not saved: %v", stored)
+	}
+
+	// A fresh registry, as after a restart, with the same storage behind it.
+	b := newAccounts()
+	b.loadToken = a.loadToken
+	b.saveToken = a.saveToken
+
+	second := b.forGitHub(user)
+
+	if second.botToken != first.botToken {
+		t.Errorf("token changed across a restart: %q then %q",
+			first.botToken, second.botToken)
+	}
+	if _, _, ok := b.redeem(first.botToken); !ok {
+		t.Error("the token from before the restart no longer works")
 	}
 }

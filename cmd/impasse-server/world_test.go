@@ -47,8 +47,8 @@ func TestLoadWorldRejectsMissingFile(t *testing.T) {
 func TestJoinAssignsDistinctIDs(t *testing.T) {
 	w := testWorld(t, openRoom)
 
-	a := w.join()
-	b := w.join()
+	a := w.join(0)
+	b := w.join(0)
 
 	if a.id == b.id {
 		t.Fatalf("both players got id %d", a.id)
@@ -75,7 +75,7 @@ func TestEveryoneSpawnsOnTheMarker(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		if p := w.join(); p.pos != want {
+		if p := w.join(0); p.pos != want {
 			t.Fatalf("player %d started at %v, want %v", p.id, p.pos, want)
 		}
 	}
@@ -85,7 +85,7 @@ func TestEveryoneSpawnsOnTheMarker(t *testing.T) {
 func TestSpawnCellIsWalkable(t *testing.T) {
 	w := testWorld(t, "#####\n#.S.#\n#####")
 
-	p := w.join()
+	p := w.join(0)
 	w.queueMove(p.id, grid.West)
 	w.resolve()
 
@@ -135,13 +135,13 @@ func TestDuplicateSpawnMarkersAreRejected(t *testing.T) {
 
 func TestResolveAppliesQueuedMove(t *testing.T) {
 	w := testWorld(t, openRoom)
-	p := w.join()
+	p := w.join(0)
 	p.pos = grid.Pos{X: 1, Y: 1}
 
-	w.queueMove(p.id, grid.SouthEast)
+	w.queueMove(p.id, grid.South)
 	w.resolve()
 
-	if want := (grid.Pos{X: 2, Y: 2}); p.pos != want {
+	if want := (grid.Pos{X: 1, Y: 2}); p.pos != want {
 		t.Fatalf("pos %v, want %v", p.pos, want)
 	}
 }
@@ -150,7 +150,7 @@ func TestResolveAppliesQueuedMove(t *testing.T) {
 // key press would move the player every tick forever.
 func TestResolveClearsQueue(t *testing.T) {
 	w := testWorld(t, openRoom)
-	p := w.join()
+	p := w.join(0)
 	p.pos = grid.Pos{X: 1, Y: 1}
 
 	w.queueMove(p.id, grid.East)
@@ -170,7 +170,7 @@ func TestResolveClearsQueue(t *testing.T) {
 // Queuing again before the tick locks replaces the earlier action.
 func TestQueueOverwrites(t *testing.T) {
 	w := testWorld(t, openRoom)
-	p := w.join()
+	p := w.join(0)
 	p.pos = grid.Pos{X: 1, Y: 1}
 
 	w.queueMove(p.id, grid.East)
@@ -184,7 +184,7 @@ func TestQueueOverwrites(t *testing.T) {
 
 func TestResolveRefusesMoveIntoWall(t *testing.T) {
 	w := testWorld(t, openRoom)
-	p := w.join()
+	p := w.join(0)
 	p.pos = grid.Pos{X: 1, Y: 1}
 
 	w.queueMove(p.id, grid.North)
@@ -194,30 +194,11 @@ func TestResolveRefusesMoveIntoWall(t *testing.T) {
 		t.Fatalf("pos %v, want %v", p.pos, want)
 	}
 }
-
-// The corner rule has to hold through the world, not just in the grid package.
-func TestResolveRefusesCornerCut(t *testing.T) {
-	w := testWorld(t, ""+
-		"###\n"+
-		"#.#\n"+
-		"##.")
-	p := w.join()
-	p.pos = grid.Pos{X: 1, Y: 1}
-
-	w.queueMove(p.id, grid.SouthEast)
-	w.resolve()
-
-	if want := (grid.Pos{X: 1, Y: 1}); p.pos != want {
-		t.Fatalf("cut the corner to %v", p.pos)
-	}
-}
-
-// Every queued action resolves on the same tick, so nobody moves first.
 func TestResolveIsSimultaneous(t *testing.T) {
 	w := testWorld(t, openRoom)
 
-	a := w.join()
-	b := w.join()
+	a := w.join(0)
+	b := w.join(0)
 	a.pos = grid.Pos{X: 1, Y: 1}
 	b.pos = grid.Pos{X: 3, Y: 3}
 
@@ -243,8 +224,8 @@ func TestResolveIsSimultaneous(t *testing.T) {
 func TestPlayersStack(t *testing.T) {
 	w := testWorld(t, openRoom)
 
-	a := w.join()
-	b := w.join()
+	a := w.join(0)
+	b := w.join(0)
 	a.pos = grid.Pos{X: 1, Y: 1}
 	b.pos = grid.Pos{X: 2, Y: 1}
 
@@ -272,7 +253,7 @@ func TestQueueForUnknownPlayerIsIgnored(t *testing.T) {
 
 func TestRemoveDropsPlayer(t *testing.T) {
 	w := testWorld(t, openRoom)
-	p := w.join()
+	p := w.join(0)
 
 	w.remove(p.id)
 
@@ -286,7 +267,7 @@ func TestRemoveDropsPlayer(t *testing.T) {
 
 func TestWelcomeCarriesMapAndTick(t *testing.T) {
 	w := testWorld(t, openRoom)
-	p := w.join()
+	p := w.join(0)
 
 	got := w.welcome(p)
 
@@ -307,8 +288,8 @@ func TestWelcomeCarriesMapAndTick(t *testing.T) {
 
 func TestStateListsEveryPlayer(t *testing.T) {
 	w := testWorld(t, openRoom)
-	a := w.join()
-	b := w.join()
+	a := w.join(0)
+	b := w.join(0)
 
 	state := w.state()
 

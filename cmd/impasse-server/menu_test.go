@@ -17,15 +17,16 @@ func testMenu(t *testing.T) (menuModel, *server, *account) {
 	srv, _ := testServer(t)
 	srv.store = testStore(t)
 
-	acc := srv.accounts.forKey(testKey(t))
-	if _, err := srv.store.Ensure(acc.fingerprint); err != nil {
-		t.Fatalf("ensuring account: %v", err)
+	user := testUser()
+	acc := srv.accounts.forGitHub(user)
+	if _, err := srv.store.Ensure(user); err != nil {
+		t.Fatalf("ensuring player: %v", err)
 	}
 
 	renderer := lipgloss.NewRenderer(&strings.Builder{},
 		termenv.WithProfile(termenv.Ascii))
 
-	return newMenuModel(srv, acc, ":2223", renderer), srv, acc
+	return newMenuModel(srv, "SHA256:test", acc, ":2223", renderer), srv, acc
 }
 
 // press sends a key and returns the updated model.
@@ -171,7 +172,7 @@ func TestRenamingPersists(t *testing.T) {
 		t.Errorf("pane %v, want back on the main menu after saving", m.pane)
 	}
 
-	stored, err := m.store.Get(acc.fingerprint)
+	stored, err := m.store.Get(acc.githubID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -184,7 +185,7 @@ func TestRenamingPersists(t *testing.T) {
 func TestEmptyNameIsRefused(t *testing.T) {
 	m, _, acc := testMenu(t)
 
-	before, err := m.store.Get(acc.fingerprint)
+	before, err := m.store.Get(acc.githubID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -206,7 +207,7 @@ func TestEmptyNameIsRefused(t *testing.T) {
 		t.Error("no explanation was shown")
 	}
 
-	after, err := m.store.Get(acc.fingerprint)
+	after, err := m.store.Get(acc.githubID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -261,11 +262,12 @@ func TestEveryPaneRenders(t *testing.T) {
 func TestLeaderboardPaneShowsScores(t *testing.T) {
 	m, _, acc := testMenu(t)
 
-	m.store.SetName(acc.fingerprint, "me")
-	m.store.RecordMatch(acc.fingerprint, 4)
-	m.store.Ensure("SHA256:rival")
-	m.store.SetName("SHA256:rival", "rival")
-	m.store.RecordMatch("SHA256:rival", 9)
+	m.store.SetName(acc.githubID, "me")
+	m.store.RecordMatch(acc.githubID, 4)
+	rival := GitHubUser{ID: 9999, Login: "rival"}
+	m.store.Ensure(rival)
+	m.store.SetName(rival.ID, "rival")
+	m.store.RecordMatch(rival.ID, 9)
 	m.reload()
 
 	m.pane = paneLeaderboard
@@ -283,8 +285,8 @@ func TestPlayersPaneNamesTheDriver(t *testing.T) {
 	m, _, acc := testMenu(t)
 
 	m.lobby.Players = []lobbyPlayer{
-		{Fingerprint: acc.fingerprint, Score: 2, HasTerminal: true, HasBot: true},
-		{Fingerprint: "SHA256:other", Score: 1, HasBot: true},
+		{GitHubID: acc.githubID, Login: "me", Score: 2, HasTerminal: true, HasBot: true},
+		{GitHubID: 4242, Login: "other", Score: 1, HasBot: true},
 	}
 
 	m.pane = panePlayers

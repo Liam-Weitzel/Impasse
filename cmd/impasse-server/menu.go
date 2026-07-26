@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -37,10 +39,26 @@ const (
 	panePlayers
 	paneName
 	paneToken
+	// paneSignIn is shown instead of everything else until the key has been
+	// linked to a GitHub account.
+	paneSignIn
 )
 
 // refreshMsg drives the live panes and the match clock.
 type refreshMsg time.Time
+
+// signInStarted carries the code GitHub wants the player to type.
+type signInStarted struct {
+	code DeviceCode
+	err  error
+}
+
+// signInDone is the result of waiting for them to do it.
+type signInDone struct {
+	acc     *account
+	account Account
+	err     error
+}
 
 func refreshEvery() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
@@ -67,10 +85,13 @@ var menuItems = []menuItem{
 }
 
 type menuModel struct {
-	server  *server
-	store   *store
-	acc     *account
-	botAddr string
+	server *server
+	store  *store
+	acc    *account
+	// fingerprint is the key this machine offered, if any. Remembered on a
+	// successful sign in so the next session here skips it.
+	fingerprint string
+	botAddr     string
 
 	styles menuStyles
 	width  int
@@ -88,33 +109,56 @@ type menuModel struct {
 	board   []Account
 	lobby   lobbyInfo
 	tickMS  int
+
+	// GitHub sign in. oauth is nil when the server runs without a client id,
+	// in which case the key alone is the account and this is all skipped.
+	oauth     oauth
+	code      DeviceCode
+	signInOn  bool
+	signInErr string
 }
 
-func newMenuModel(s *server, acc *account, botAddr string, renderer *lipgloss.Renderer) menuModel {
+func newMenuModel(s *server, fingerprint string, acc *account, botAddr string, renderer *lipgloss.Renderer) menuModel {
 	input := textinput.New()
 	input.CharLimit = maxNameLength
 	input.Prompt = "> "
 
 	m := menuModel{
-		server:  s,
-		store:   s.store,
-		acc:     acc,
-		botAddr: botAddr,
-		styles:  newMenuStyles(renderer),
-		name:    input,
-		tickMS:  int(s.world.tickDuration / time.Millisecond),
-		width:   80,
-		height:  24,
+		server:      s,
+		store:       s.store,
+		acc:         acc,
+		fingerprint: fingerprint,
+		botAddr:     botAddr,
+		styles:      newMenuStyles(renderer),
+		name:        input,
+		tickMS:      int(s.world.tickDuration / time.Millisecond),
+		oauth:       s.oauth,
+		width:       80,
+		height:      24,
 	}
+
+	// Nothing in the menu matters until we know who this is, so an unknown
+	// session opens straight on the sign in screen.
+	if m.acc == nil {
+		m.pane = paneSignIn
+	}
+
 	m.reload()
 	return m
+}
+
+// needsSignIn reports whether this session still has no player behind it.
+func (m menuModel) needsSignIn() bool {
+	return m.acc == nil
 }
 
 // reload pulls fresh data. Cheap enough to do once a second.
 func (m *menuModel) reload() {
 	if m.store != nil {
-		if a, err := m.store.Ensure(m.acc.fingerprint); err == nil {
-			m.account = a
+		if m.acc != nil {
+			if a, err := m.store.Get(m.acc.githubID); err == nil {
+				m.account = a
+			}
 		}
 		if board, err := m.store.Leaderboard(10); err == nil {
 			m.board = board
@@ -124,7 +168,54 @@ func (m *menuModel) reload() {
 }
 
 func (m menuModel) Init() tea.Cmd {
+	if m.needsSignIn() {
+		return tea.Batch(refreshEvery(), m.startSignIn())
+	}
 	return refreshEvery()
+}
+
+// startSignIn asks GitHub for a code, off the update loop.
+func (m menuModel) startSignIn() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		code, err := m.oauth.Start(ctx)
+		return signInStarted{code: code, err: err}
+	}
+}
+
+// waitForSignIn polls GitHub until the player has entered the code, then turns
+// the session into a player.
+func (m menuModel) waitForSignIn(code DeviceCode) tea.Cmd {
+	server := m.server
+	auth := m.oauth
+	fp := m.fingerprint
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 16*time.Minute)
+		defer cancel()
+
+		user, err := auth.Wait(ctx, code)
+		if err != nil {
+			return signInDone{err: err}
+		}
+
+		stored, err := server.store.Ensure(user)
+		if err != nil {
+			return signInDone{err: err}
+		}
+
+		// Remember this machine so the next session here skips signing in.
+		if err := server.store.LinkKey(fp, user.ID); err != nil {
+			log.Printf("remembering key for %s: %v\n", user.Login, err)
+		}
+
+		return signInDone{
+			acc:     server.accounts.forGitHub(user),
+			account: stored,
+		}
+	}
 }
 
 func (m menuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -137,7 +228,33 @@ func (m menuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reload()
 		return m, refreshEvery()
 
+	case signInStarted:
+		if msg.err != nil {
+			m.signInErr = msg.err.Error()
+			return m, nil
+		}
+		m.code = msg.code
+		m.signInOn = true
+		m.signInErr = ""
+		return m, m.waitForSignIn(msg.code)
+
+	case signInDone:
+		m.signInOn = false
+		if msg.err != nil {
+			m.signInErr = msg.err.Error()
+			return m, nil
+		}
+		m.acc = msg.acc
+		m.account = msg.account
+		m.pane = paneMain
+		m.notes = "Signed in as " + msg.account.GitHubLogin + " on GitHub."
+		m.reload()
+		return m, nil
+
 	case tea.KeyMsg:
+		if m.pane == paneSignIn {
+			return m.updateSignIn(msg)
+		}
 		if m.pane == paneName {
 			return m.updateName(msg)
 		}
@@ -196,6 +313,25 @@ func (m menuModel) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updateSignIn handles the sign in screen. There is nowhere else to go from
+// here except out, since an unlinked key cannot play.
+func (m menuModel) updateSignIn(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q", "esc":
+		m.choice = choiceQuit
+		m.done = true
+		return m, tea.Quit
+
+	case "r", "enter":
+		// Retry, for an expired code or a failed attempt.
+		if !m.signInOn {
+			m.signInErr = ""
+			return m, m.startSignIn()
+		}
+	}
+	return m, nil
+}
+
 func (m menuModel) updateName(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -210,8 +346,8 @@ func (m menuModel) updateName(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.notes = "A name cannot be empty."
 			return m, nil
 		}
-		if m.store != nil {
-			if err := m.store.SetName(m.acc.fingerprint, name); err != nil {
+		if m.store != nil && m.acc != nil {
+			if err := m.store.SetName(m.acc.githubID, name); err != nil {
 				m.notes = "Could not save: " + err.Error()
 				return m, nil
 			}
@@ -260,6 +396,8 @@ func (m menuModel) View() string {
 		body = m.viewName()
 	case paneToken:
 		body = m.viewToken()
+	case paneSignIn:
+		body = m.viewSignIn()
 	default:
 		body = m.viewMain()
 	}
@@ -284,17 +422,56 @@ func (m menuModel) footerHelp() string {
 		return "up/down move  enter select  q quit"
 	case paneName:
 		return "enter save  esc cancel"
+	case paneSignIn:
+		return "r retry  q quit"
 	default:
 		return "esc back"
 	}
+}
+
+func (m menuModel) viewSignIn() string {
+	var b strings.Builder
+
+	b.WriteString(m.styles.item.Render("Sign in with GitHub to play."))
+	b.WriteString("\n")
+	b.WriteString(m.styles.dim.Render(
+		"Your SSH key identifies this machine. GitHub identifies you, so that one\n" +
+			"person means one character. Linking another machine's key later reaches\n" +
+			"this same account."))
+	b.WriteString("\n\n")
+
+	switch {
+	case m.signInErr != "":
+		b.WriteString(m.styles.note.Render("Sign in failed: " + m.signInErr))
+		b.WriteString("\n\n")
+		b.WriteString(m.styles.item.Render("Press r to try again."))
+
+	case m.code.UserCode == "":
+		b.WriteString(m.styles.dim.Render("Asking GitHub for a code..."))
+
+	default:
+		uri := m.code.VerificationURI
+		if uri == "" {
+			uri = "https://github.com/login/device"
+		}
+		b.WriteString(m.styles.item.Render("Go to  "))
+		b.WriteString(m.styles.token.Render(uri))
+		b.WriteString("\n")
+		b.WriteString(m.styles.item.Render("Enter  "))
+		b.WriteString(m.styles.token.Render(m.code.UserCode))
+		b.WriteString("\n\n")
+		b.WriteString(m.styles.dim.Render("Waiting for you to finish..."))
+	}
+
+	return b.String()
 }
 
 func (m menuModel) viewMain() string {
 	var b strings.Builder
 
 	who := m.account.Name
-	if who == "" {
-		who = defaultName(m.acc.fingerprint)
+	if who == "" && m.acc != nil {
+		who = defaultName(m.acc.githubLogin)
 	}
 	b.WriteString(m.styles.dim.Render("Signed in as ") + m.styles.name.Render(who))
 	if m.account.Matches > 0 {
@@ -331,7 +508,7 @@ func (m menuModel) viewLeaderboard() string {
 	for i, a := range m.board {
 		row := fmt.Sprintf("%-4d %-18s %6d %6d %8d",
 			i+1, truncate(a.Name, 18), a.Best, a.Total, a.Matches)
-		if a.Fingerprint == m.acc.fingerprint {
+		if m.acc != nil && a.GitHubID == m.acc.githubID {
 			b.WriteString(m.styles.selected.Render(row))
 		} else {
 			b.WriteString(m.styles.item.Render(row))
@@ -357,9 +534,9 @@ func (m menuModel) viewPlayers() string {
 	b.WriteString("\n")
 
 	for _, p := range m.lobby.Players {
-		name := defaultName(p.Fingerprint)
+		name := p.Login
 		if m.store != nil {
-			if a, err := m.store.Get(p.Fingerprint); err == nil {
+			if a, err := m.store.Get(p.GitHubID); err == nil {
 				name = a.Name
 			}
 		}
@@ -374,7 +551,7 @@ func (m menuModel) viewPlayers() string {
 
 		row := fmt.Sprintf("%-18s %6d  %s",
 			truncate(name, 18), p.Score, strings.Join(driven, " and "))
-		if p.Fingerprint == m.acc.fingerprint {
+		if m.acc != nil && p.GitHubID == m.acc.githubID {
 			b.WriteString(m.styles.selected.Render(row))
 		} else {
 			b.WriteString(m.styles.item.Render(row))
@@ -393,7 +570,7 @@ func (m menuModel) viewName() string {
 
 func (m menuModel) viewToken() string {
 	token := ""
-	if m.server != nil {
+	if m.server != nil && m.acc != nil {
 		token = m.server.accounts.botToken(m.acc)
 	}
 

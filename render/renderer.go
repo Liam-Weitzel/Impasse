@@ -24,15 +24,43 @@ type State struct {
 	lightPosLoc   int32
 	ambientColLoc int32
 	diffuseColLoc int32
+	tilesLoc      int32
+	texturedLoc   int32
 
 	lastCull uint32
+
+	texturedOn    bool
+	texturedKnown bool
+}
+
+// setTextured flips the shader between sampling the atlas and using a flat
+// colour, cached so a run of shapes of the same sort costs one call.
+func (s *State) setTextured(on bool) {
+	if s.texturedKnown && s.texturedOn == on {
+		return
+	}
+	s.texturedKnown = true
+	s.texturedOn = on
+
+	var v int32
+	if on {
+		v = 1
+	}
+	gl.Uniform1i(s.texturedLoc, v)
 }
 
 type Renderer struct {
 	state      *State
 	program    uint32
 	ambientCol mgl32.Vec3
+	atlas      *Atlas
 	ProjMat    mgl32.Mat4
+}
+
+// SetAtlas gives the renderer the tile texture to sample. Nil means everything
+// draws with flat colours.
+func (r *Renderer) SetAtlas(a *Atlas) {
+	r.atlas = a
 }
 
 func NewRenderer(ambientCol mgl32.Vec3) (*Renderer, error) {
@@ -87,6 +115,13 @@ func (r *Renderer) RenderMesh(view mgl32.Mat4, css []*CompiledShape) {
 
 	gl.UseProgram(r.program)
 
+	// One atlas for the whole world, bound once.
+	if r.atlas != nil {
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, r.atlas.texture)
+		gl.Uniform1i(r.state.tilesLoc, 0)
+	}
+
 	gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &view[0])
 	gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
 	gl.UniformMatrix4fv(r.state.projMatLoc, 1, false, &r.ProjMat[0])
@@ -120,6 +155,8 @@ func (r *Renderer) RenderSpheresMesh(
 
 	diff := mgl32.Vec3{0.5, 0.5, 0.5}
 	gl.Uniform3fv(r.state.diffuseColLoc, 1, &diff[0])
+	// Players and pickups are solid colour, never textured.
+	r.state.setTextured(false)
 
 	for i := range positions {
 		mvMat := view.Mul4(mgl32.Translate3D(
@@ -202,6 +239,8 @@ func (s *State) extractUniforms(program uint32) error {
 		{"diffuseCol", &s.diffuseColLoc},
 		{"normalMat", &s.normalMatLoc},
 		{"lightPos", &s.lightPosLoc},
+		{"tiles", &s.tilesLoc},
+		{"textured", &s.texturedLoc},
 	} {
 		if *l.addr = gl.GetUniformLocation(
 			program, gl.Str(l.name+"\x00")); *l.addr < 0 {

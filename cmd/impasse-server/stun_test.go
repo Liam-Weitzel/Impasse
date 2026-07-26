@@ -17,8 +17,8 @@ const stunRoom = "" +
 func stunWorld(t *testing.T) (*world, *player, *player) {
 	t.Helper()
 	w := testWorld(t, stunRoom)
-	a := w.join()
-	b := w.join()
+	a := w.join(0)
+	b := w.join(0)
 	a.pos = grid.Pos{X: 2, Y: 2}
 	b.pos = grid.Pos{X: 3, Y: 2}
 	return w, a, b
@@ -60,18 +60,18 @@ func TestStunLandsAfterStartup(t *testing.T) {
 // The burst catches the whole 3x3, not just one target.
 func TestStunHitsEveryoneInRange(t *testing.T) {
 	w := testWorld(t, stunRoom)
-	caster := w.join()
+	caster := w.join(0)
 	caster.pos = grid.Pos{X: 2, Y: 2}
 
 	var near []*player
 	for _, d := range grid.Directions {
-		p := w.join()
+		p := w.join(0)
 		delta := d.Delta()
 		p.pos = grid.Pos{X: caster.pos.X + delta.X, Y: caster.pos.Y + delta.Y}
 		near = append(near, p)
 	}
 
-	far := w.join()
+	far := w.join(0)
 	far.pos = grid.Pos{X: 5, Y: 2}
 
 	w.queueStun(caster.id)
@@ -115,10 +115,10 @@ func TestStunStillLandsIfTheTargetFlees(t *testing.T) {
 // they are not caught.
 func TestStunMissesSomeoneWhoArrivesLate(t *testing.T) {
 	w := testWorld(t, stunRoom)
-	caster := w.join()
+	caster := w.join(0)
 	caster.pos = grid.Pos{X: 2, Y: 2}
 
-	late := w.join()
+	late := w.join(0)
 	late.pos = grid.Pos{X: 5, Y: 2}
 
 	w.queueStun(caster.id)
@@ -134,8 +134,8 @@ func TestStunMissesSomeoneWhoArrivesLate(t *testing.T) {
 // A stun wipes loot progress completely.
 func TestStunResetsTheChannel(t *testing.T) {
 	w := testWorld(t, "#####\n#S*.#\n#...#\n#####")
-	victim := w.join()
-	caster := w.join()
+	victim := w.join(0)
+	caster := w.join(0)
 	victim.pos = grid.Pos{X: 2, Y: 1}
 	caster.pos = grid.Pos{X: 3, Y: 1}
 
@@ -165,8 +165,8 @@ func TestStunResetsTheChannel(t *testing.T) {
 // standoff lose the pickup.
 func TestCastingGivesUpYourOwnChannel(t *testing.T) {
 	w := testWorld(t, "#####\n#S*.#\n#...#\n#####")
-	a := w.join()
-	b := w.join()
+	a := w.join(0)
+	b := w.join(0)
 	a.pos = grid.Pos{X: 2, Y: 1}
 	b.pos = grid.Pos{X: 2, Y: 1}
 
@@ -337,7 +337,7 @@ func TestStunnedPlayersCannotAct(t *testing.T) {
 // other and a wind up cannot be read as proof that someone is in range.
 func TestCastingAtNothingStillCosts(t *testing.T) {
 	w := testWorld(t, stunRoom)
-	a := w.join()
+	a := w.join(0)
 	a.pos = grid.Pos{X: 2, Y: 2}
 
 	w.queueStun(a.id)
@@ -415,7 +415,7 @@ func TestCastingIsVisibleDuringStartup(t *testing.T) {
 // whether anyone is in range.
 func TestCastingAtNothingStillTelegraphs(t *testing.T) {
 	w := testWorld(t, stunRoom)
-	a := w.join()
+	a := w.join(0)
 	a.pos = grid.Pos{X: 2, Y: 2}
 
 	w.queueStun(a.id)

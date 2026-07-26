@@ -64,6 +64,8 @@ func main() {
 		logFile         = flag.String("log", "", "Log file")
 		idleDuration    = flag.Duration("idle", 0, "idle duration")
 		sessionDuration = flag.Duration("duration", 0, "session duration")
+		tiles           = flag.String("tiles", "",
+			"PNG tile atlas, empty for the generated default")
 	)
 	flag.Parse()
 
@@ -91,6 +93,7 @@ func main() {
 					screen, window,
 					(*idleDuration).Abs(),
 					(*sessionDuration).Abs(),
+					*tiles,
 				)
 			})
 		})

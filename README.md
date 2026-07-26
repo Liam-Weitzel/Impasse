@@ -55,10 +55,10 @@ The world is a flat 2D grid of cells, held by the server and simulated there. Th
 geometry is generated from the grid, never the other way round.
 
 `grid` is pure data with no GL and no networking. It parses the ASCII map, answers
-walkability, and owns the movement rule. Movement is 8 way on `QWEADZXC` and world
-locked, so `W` is always north whatever the camera is doing. A diagonal needs both
-adjoining orthogonal cells open, otherwise a player would slip between two walls
-meeting at a corner and visibly clip through the geometry.
+walkability, and owns the movement rule. Movement is four way on `WASD` and world
+locked, so `W` is always north whatever the camera is doing. There are no diagonals, so
+there is no corner to cut and no corner rule, and distance is Manhattan. Cells touching
+only at a corner are not connected.
 
 The server runs a 600ms tick. Clients queue one action, queuing again before the tick
 locks replaces it, and every queued action resolves at once when the tick fires. The
@@ -175,58 +175,77 @@ instead of from an ioctl.
 
 ### Identity
 
-Your SSH public key is your account. There is no registration and no password. A key the
-server has not seen becomes an account on the spot.
+**A player is a GitHub account.** Not an SSH key, and not a machine.
 
-One account owns exactly one character. That is the anti multi accounting rule, and it
-is not the same as one connection per character.
+Keys are free, so a keypair cannot be an identity: one person could hold as many
+players as they cared to run `ssh-keygen`. A GitHub account is harder to farm, so that
+is what a player is, and the server refuses to start without one configured.
 
-An account may hold **one terminal and one bot** at a time, and no more. Both drive the
-same character, and whichever queues an action last before the tick locks is the one
-that runs. That is what makes spectating your own bot, and taking over from it, possible
-at all. A second terminal is refused, because two terminals on one character would mean
-two cameras on it with no answer for which is the real view. A second bot is refused for
-the same reason it exists at all: one key, one player.
+Signing in uses GitHub's **device flow**. The server shows a code, you enter it at
+github.com/login/device, and the server polls until you have. There is no callback URL,
+no HTTPS listener and no client secret. Nothing has to be publicly reachable, because
+the server only makes outbound requests.
 
-Which kind a connection is comes from the token it presented, not from anything it
-claims. One shot tokens are minted only by the SSH server, so they are terminals. The
-long lived token is a bot.
+Run it with the client id, which is not a secret but is kept out of the repo anyway:
 
-The character only leaves the world when the last connection driving it does, so
-closing the terminal does not kill your bot.
+```sh
+export IMPASSE_GITHUB_CLIENT_ID=Ov23li...
+./bin/impasse-server --map maps/big.txt
+```
 
-Anyone can generate more keys, so this does not make multi accounting impossible. What
-it buys is that one key means exactly one character. Anything stronger is a launch
-problem, not a today problem.
+The **client secret is never used and must never be passed**. Device flow does not need
+one. If you have generated a secret, it does nothing here.
 
-Every client authenticates before anything else, with a token:
+**SSH keys are optional.** You do not need one to connect and you do not need one to
+play. If your client offers a key, it is remembered against your player so that machine
+skips signing in next time. A second machine's key points at the same player, because
+the rule is one person one player, not one machine one player. With no key you simply
+sign in each session.
 
-* Humans never type one. The SSH server mints a one shot token per session and hands it
-  to the renderer it spawns, which is why the renderer needs `IMPASSE_TOKEN` as well as
-  `IMPASSE_CONNECTION`. A separate process cannot present your key itself.
-* Bots use the long lived token from the account, printed by `ssh <host> token`. It
-  lasts until the server restarts, because nothing is persisted yet.
-
-A connection that does not authenticate first gets an `error` message and is hung up on.
+Accounts key on the numeric GitHub id rather than the login, since logins can be
+renamed and the old one then becomes available to somebody else.
 
 ### Rendering
+
+Geometry is built one 16x16 block of cells at a time, so each shape covers a known patch
+of ground. Every frame the chunks that cannot be on screen are dropped by testing their
+bounding box against the view frustum. On a 200x120 map that draws about 6 chunks out of
+208. Splitting by vertex count instead would scatter each shape across the whole map and
+leave nothing usefully cullable, which is why the mesh is chunked by region.
+
+The test is conservative. A chunk is only dropped when every corner of its box falls
+outside the same frustum plane, so culling can keep something it did not need to, but
+can never remove something that is on screen.
 
 `glReadPixels` returns rows starting at the bottom left, while `image.RGBA` row 0 is the
 top. The projection mirrors clip space vertically to cancel that out. Without it the
 picture reaches the terminal upside down. Because the mirror reverses triangle
 orientation on screen, **front faces are clockwise**.
 
-Nothing culls. The mesh is split by vertex count to stay under the `uint16` index
-limit, not by region, so a bounding box per chunk would not help. Culling needs
-spatial chunking first.
-
 ### Textures
 
-There are none yet, and the MVP needs them. Surfaces currently take a flat colour from
-the ambient and diffuse uniforms. When textures return they will be keyed to the grid
-and a tileset rather than to per shape material data, so the vertex format gains back a
-texture coordinate and the fragment shader gains a sampler. Nothing from the old X3D
-texture cache was worth keeping, which is why it went.
+Surfaces sample a tile atlas: one texture holding a grid of square tiles, so the whole
+world is one bind and the mesh never has to be sorted by material. Tiles are chosen per
+cell from a hash of its coordinates, which is deterministic, so every client draws the
+same map the same way and a wall does not shimmer as the camera moves.
+
+Tiles are 16x16 pixels, and that is not a placeholder. The renderer turns a 4x8 pixel
+patch of the framebuffer into one terminal character, so a game cell is only a few dozen
+pixels across even zoomed in. Detail finer than that is averaged away before anyone sees
+it. What survives is value contrast and large shapes.
+
+The atlas UV rectangle is inset by a fraction of a tile, because linear filtering
+otherwise reaches into the neighbouring tile and draws a bright seam along every cell
+edge. Mipmaps are off for the same reason: they blend neighbouring tiles together at
+distance.
+
+`--tiles atlas.png` on the renderer replaces the tileset. With no path it generates one
+in code, so the game always has something to look at and a missing file is never fatal.
+A path that fails to load is an error rather than a silent fallback, since a typo would
+otherwise look like the art simply not arriving.
+
+Players, pickups and the pointer are never textured. They are solid colour so they stay
+readable against whatever the ground is doing.
 
 ### Scale and units
 
@@ -270,24 +289,17 @@ Every player enters on the `S`, so the start of a round is a scramble out of the
 door. A map may hold at most one, and two is an error. A map with no `S` still loads,
 falling back to the first cell of the largest region, and the server says so.
 
-`maps/open.txt` is the one to use for movement testing. It is wide open in places so
-diagonals have room to work, and it has single cell gaps and blocks meeting at corners
-where the corner rule refuses them. `maps/test.txt` is a tight maze where diagonals
-almost never apply.
-
 The server warns at startup about cells that cannot be reached from the spawn, since
 that usually means a sealed off pocket rather than a deliberate choice.
 
-You need an SSH key, since that is your account. `ssh-keygen -t ed25519` if you have
-none.
-
-Connect as a human:
+Connect as a human. No SSH key needed:
 
 ```sh
 ssh -p2222 localhost -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking=no"
 ```
 
-Fetch your bot token, then run a bot:
+Sign in with GitHub when the menu asks. Then fetch your bot token, from the menu or
+with:
 
 ```sh
 ssh -p2222 localhost token
@@ -414,6 +426,13 @@ The pre-game menu:
 * Match countdown, the same one players in the world see.
 * Runs in the server over the SSH session, then hands the terminal to the renderer.
 
+GitHub sign in, required:
+
+* Device flow, so no web listener and no client secret.
+* A player is a GitHub account. The server will not start without a client id.
+* SSH keys are optional and are only a remembered convenience, never an identity.
+* Several machines reach one player.
+
 Milestone 5, identity:
 
 * SSH public key is the account. No registration, no password.
@@ -432,8 +451,7 @@ Matches and scores:
 
 ### Next
 
-Bot tokens are still in memory, so a restart invalidates them even though accounts and
-scores now survive.
+Textures. Surfaces are flat colours and the MVP needs a tileset.
 
 Two minutes per match is a starting point rather than a considered number. Tune it with
 `--match` once it has been played properly.

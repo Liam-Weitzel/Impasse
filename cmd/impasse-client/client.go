@@ -58,8 +58,14 @@ type client struct {
 	con    *connection
 	userID uint64
 
-	g      *grid.Grid
-	shapes []*render.CompiledShape
+	g         *grid.Grid
+	atlas     *render.Atlas
+	tilesPath string
+	shapes    []*render.CompiledShape
+	// visibleShapes is the culled subset drawn this frame, reused each time.
+	visibleShapes []*render.CompiledShape
+	// drawn and total report how much culling saved, for the HUD.
+	drawn int
 
 	window  *sdl.Window
 	context sdl.GLContext
@@ -116,9 +122,11 @@ func startClient(
 	screen tcell.Screen, window *sdl.Window,
 	idleDuration time.Duration,
 	sessionDuration time.Duration,
+	tilesPath string,
 ) error {
 
 	c := &client{
+		tilesPath:       tilesPath,
 		con:             con,
 		userID:          welcome.ID,
 		g:               g,
@@ -223,7 +231,13 @@ func (c *client) run() error {
 		}
 	}()
 
-	if c.shapes, err = buildGridMesh(c.g); err != nil {
+	if c.atlas, err = loadAtlas(c.tilesPath); err != nil {
+		return err
+	}
+	defer c.atlas.Delete()
+	c.renderer.SetAtlas(c.atlas)
+
+	if c.shapes, err = buildGridMesh(c.g, c.atlas); err != nil {
 		return err
 	}
 	defer func() {
@@ -391,11 +405,10 @@ func (c *client) handleRune(r rune) {
 		return
 	}
 
-	// S sits in the middle of the movement cluster and bursts everyone
-	// around you. Space loots, which also serves as hold position when there
-	// is nothing underfoot.
+	// WASD moves, E bursts everyone around you, space loots. Space also
+	// serves as hold position when there is nothing underfoot.
 	switch r {
-	case 's':
+	case 'e':
 		c.con.queueStun()
 		c.lastAction = time.Now()
 		return
@@ -433,7 +446,7 @@ func (c *client) drawHUD() {
 		Foreground(tcell.ColorYellow)
 
 	gfx.WriteString(c.screen, 0, 0,
-		"ESC: Quit|QWEADZXC: Move|Space: Loot|S: Stun|Arrows: Camera|+/-: Zoom",
+		"ESC: Quit|WASD: Move|Space: Loot|E: Stun|Arrows: Camera|+/-: Zoom",
 		st)
 
 	width, height := c.screen.Size()
@@ -462,11 +475,11 @@ func (c *client) drawHUD() {
 	}
 
 	gfx.WriteString(c.screen, 0, height-1,
-		fmt.Sprintf("3D: %5.2fms|Unicode: %5.2fms|Update: %5.2fms|FPS: %.2f",
+		fmt.Sprintf("3D: %5.2fms|Unicode: %5.2fms|Update: %5.2fms|FPS: %.2f|Chunks: %d/%d",
 			float64(c.renderDuration.Microseconds())/1000,
 			float64(c.conversionDuration.Microseconds())/1000,
 			float64(c.termDuration.Microseconds())/1000,
-			fps), st)
+			fps, c.drawn, len(c.shapes)), st)
 
 	players := fmt.Sprintf("Players: %d", len(c.attendees))
 	gfx.WriteString(c.screen, width-len(players), height-1, players, st)
@@ -482,7 +495,12 @@ func (c *client) render() {
 
 	t0 := time.Now()
 
-	c.renderer.RenderMesh(view, c.shapes)
+	// Only the chunks that could be on screen. On a large map this is most
+	// of the work saved.
+	c.visibleShapes = cull(c.visibleShapes, c.renderer.ProjMat.Mul4(view), c.shapes)
+	c.drawn = len(c.visibleShapes)
+
+	c.renderer.RenderMesh(view, c.visibleShapes)
 
 	c.drawTelegraphs(view, alpha)
 

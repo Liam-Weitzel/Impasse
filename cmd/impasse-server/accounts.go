@@ -3,27 +3,33 @@ package main
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"log"
 	"sync"
 
 	"github.com/gliderlabs/ssh"
 	gossh "golang.org/x/crypto/ssh"
 )
 
-// An account is one player. Identity is the SSH public key, so there is no
-// registration step and no password to lose.
+// An account is one player, and a player is a GitHub account.
 //
-// One account owns exactly one character, which is the anti multi accounting
-// rule. It is not one connection per character: a bot and the SSH session the
-// player is spectating from both attach to the same character, and whichever
-// queues last before the tick locks is what runs. Nothing else would let a
-// player watch their own bot and take over from it.
+// SSH keys are not identities. They are optional credentials that point at a
+// player, so a second machine reaches the same character and a returning player
+// skips signing in again. Somebody with no key at all just signs in each time.
+// The rule being enforced is one person one player, and a GitHub account is
+// harder to farm than a keypair.
+//
+// One account owns exactly one character. It is not one connection per
+// character: a bot and the terminal its owner is watching from both attach to
+// the same one, and whichever queues last before the tick locks is what runs.
 type account struct {
-	fingerprint string
+	githubID    int64
+	githubLogin string
 	botToken    string
 
 	// playerID is the character this account owns, valid while attached.
 	playerID uint64
 	attached bool
+
 	// An account may hold one of each kind at a time: the terminal you play
 	// or spectate from, and the bot playing for you. Two terminals on one
 	// account is not allowed, so there is never more than one camera and
@@ -44,7 +50,6 @@ const (
 	kindBot connKind = "bot"
 )
 
-// live reports whether this kind is already connected.
 func (a *account) live(kind connKind) bool {
 	if kind == kindRenderer {
 		return a.hasRenderer
@@ -64,25 +69,31 @@ func (a *account) anyLive() bool {
 	return a.hasRenderer || a.hasBot
 }
 
-// accounts maps keys and tokens to accounts. It has its own lock rather than
-// going through the server command loop, because the SSH handler needs to mint
-// a token synchronously while accepting a connection.
+// accounts maps GitHub users and tokens to accounts. It has its own lock rather
+// than going through the server command loop, because the SSH handler needs to
+// mint a token synchronously while accepting a connection.
 type accounts struct {
 	mu sync.Mutex
 
-	byFingerprint map[string]*account
+	byGitHub map[int64]*account
 	// byToken covers both the long lived bot tokens and the one shot session
 	// tokens handed to renderers.
 	byToken map[string]*account
 	// oneShot marks tokens that are spent on first use.
 	oneShot map[string]bool
+
+	// Optional persistence. Function fields rather than a store reference,
+	// so this stays testable without a database and does not have to know
+	// what a store is.
+	loadToken func(githubID int64) (string, bool)
+	saveToken func(githubID int64, token string) error
 }
 
 func newAccounts() *accounts {
 	return &accounts{
-		byFingerprint: map[string]*account{},
-		byToken:       map[string]*account{},
-		oneShot:       map[string]bool{},
+		byGitHub: map[int64]*account{},
+		byToken:  map[string]*account{},
+		oneShot:  map[string]bool{},
 	}
 }
 
@@ -96,30 +107,53 @@ func newToken() string {
 	return base64.RawURLEncoding.EncodeToString(b[:])
 }
 
-// fingerprint identifies a public key. The same key always gives the same
-// account, across restarts.
+// fingerprint identifies a public key. Used only to remember a machine, never
+// as an identity.
 func fingerprint(key ssh.PublicKey) string {
 	return gossh.FingerprintSHA256(key)
 }
 
-// forKey returns the account for a public key, creating it on first sight.
-func (a *accounts) forKey(key ssh.PublicKey) *account {
-	fp := fingerprint(key)
-
+// forGitHub returns the account for a GitHub user, creating it on first sign in.
+func (a *accounts) forGitHub(user GitHubUser) *account {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	acc := a.byFingerprint[fp]
+	acc := a.byGitHub[user.ID]
 	if acc == nil {
-		acc = &account{fingerprint: fp, botToken: newToken()}
-		a.byFingerprint[fp] = acc
-		a.byToken[acc.botToken] = acc
+		// Reuse the stored token if there is one, so a bot configured
+		// before the last restart still works.
+		token := ""
+		if a.loadToken != nil {
+			if stored, ok := a.loadToken(user.ID); ok {
+				token = stored
+			}
+		}
+		if token == "" {
+			token = newToken()
+			if a.saveToken != nil {
+				if err := a.saveToken(user.ID, token); err != nil {
+					log.Printf("saving bot token for %s: %v\n", user.Login, err)
+				}
+			}
+		}
+
+		acc = &account{
+			githubID:    user.ID,
+			githubLogin: user.Login,
+			botToken:    token,
+		}
+		a.byGitHub[user.ID] = acc
+		a.byToken[token] = acc
 	}
+
+	// Logins can be renamed, so keep it current.
+	acc.githubLogin = user.Login
+
 	return acc
 }
 
 // sessionToken mints a one shot token for a renderer to authenticate with. The
-// renderer is a child process, so it cannot present the player's key itself.
+// renderer is a child process, so it cannot sign in itself.
 func (a *accounts) sessionToken(acc *account) string {
 	token := newToken()
 
@@ -205,8 +239,7 @@ func (a *accounts) player(acc *account) (uint64, bool) {
 	return acc.playerID, acc.attached
 }
 
-// tokenBanner is what the player sees when they run the token command. Kept
-// here so the wording lives next to what it describes.
+// tokenBanner is what the player sees when they run the token command.
 func tokenBanner(token, botAddr string) string {
 	address := botAddr
 	if address == "" {
@@ -217,6 +250,5 @@ func tokenBanner(token, botAddr string) string {
 		"Bots authenticate with it and drive the same character you do, so you\n" +
 		"can watch and take over. Whichever queues an action last before the\n" +
 		"tick locks is the one that runs.\n\n" +
-		"  python3 examples/bot.py --address " + address + " --token <token>\n\n" +
-		"It is tied to your SSH key and lasts until the server restarts.\n"
+		"  python3 examples/bot.py --address " + address + " --token <token>\n"
 }

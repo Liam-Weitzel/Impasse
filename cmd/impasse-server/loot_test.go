@@ -16,7 +16,7 @@ const lootRoom = "" +
 func lootWorld(t *testing.T) (*world, *player) {
 	t.Helper()
 	w := testWorld(t, lootRoom)
-	p := w.join()
+	p := w.join(0)
 	p.pos = grid.Pos{X: 2, Y: 1}
 	return w, p
 }
@@ -116,7 +116,7 @@ func TestMovingResetsTheChannel(t *testing.T) {
 
 func TestLootOnEmptyGroundDoesNothing(t *testing.T) {
 	w := testWorld(t, lootRoom)
-	p := w.join()
+	p := w.join(0)
 	p.pos = grid.Pos{X: 1, Y: 2}
 
 	w.queueLoot(p.id)
@@ -133,7 +133,7 @@ func TestLootOnEmptyGroundDoesNothing(t *testing.T) {
 // contested slows either of them down.
 func TestChannelsAreIndependent(t *testing.T) {
 	w, a := lootWorld(t)
-	b := w.join()
+	b := w.join(0)
 	b.pos = a.pos
 
 	w.queueLoot(a.id)
@@ -155,7 +155,7 @@ func TestChannelsAreIndependent(t *testing.T) {
 // nothing, and must not also score.
 func TestOnlyOnePlayerCanCollectAPickup(t *testing.T) {
 	w, a := lootWorld(t)
-	b := w.join()
+	b := w.join(0)
 	b.pos = a.pos
 
 	// a is one tick ahead.
@@ -185,7 +185,7 @@ func TestOnlyOnePlayerCanCollectAPickup(t *testing.T) {
 // the impasse the game is named for.
 func TestSimultaneousCompletionYieldsNothing(t *testing.T) {
 	w, a := lootWorld(t)
-	b := w.join()
+	b := w.join(0)
 	b.pos = a.pos
 
 	w.queueLoot(a.id)
@@ -211,7 +211,7 @@ func TestSimultaneousCompletionYieldsNothing(t *testing.T) {
 // running away, and neither player gains on the other by waiting.
 func TestStandoffHoldsIndefinitely(t *testing.T) {
 	w, a := lootWorld(t)
-	b := w.join()
+	b := w.join(0)
 	b.pos = a.pos
 
 	w.queueLoot(a.id)
@@ -237,7 +237,7 @@ func TestStandoffHoldsIndefinitely(t *testing.T) {
 // channelling loses it on the very next tick.
 func TestLeavingAStandoffGivesThePickupAway(t *testing.T) {
 	w, a := lootWorld(t)
-	b := w.join()
+	b := w.join(0)
 	b.pos = a.pos
 
 	w.queueLoot(a.id)
@@ -265,8 +265,8 @@ func TestLeavingAStandoffGivesThePickupAway(t *testing.T) {
 // out before anybody collects.
 func TestThreeWayStandoff(t *testing.T) {
 	w, a := lootWorld(t)
-	b := w.join()
-	c := w.join()
+	b := w.join(0)
+	c := w.join(0)
 	b.pos, c.pos = a.pos, a.pos
 
 	for _, p := range []*player{a, b, c} {

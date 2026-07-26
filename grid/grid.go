@@ -73,46 +73,38 @@ func (g *Grid) Walkable(p Pos) bool {
 	return g.At(p).Walkable()
 }
 
-// Direction is one of the eight movement directions, plus None.
+// Direction is one of the four movement directions, plus None.
+//
+// Movement is orthogonal only. Without diagonals there is no corner to cut, so
+// there is no corner rule, and distance is Manhattan rather than Chebyshev.
 type Direction int
 
 const (
 	None Direction = iota
 	North
-	NorthEast
 	East
-	SouthEast
 	South
-	SouthWest
 	West
-	NorthWest
 )
 
 // deltas is indexed by Direction.
 var deltas = [...]Pos{
-	None:      {0, 0},
-	North:     {0, -1},
-	NorthEast: {1, -1},
-	East:      {1, 0},
-	SouthEast: {1, 1},
-	South:     {0, 1},
-	SouthWest: {-1, 1},
-	West:      {-1, 0},
-	NorthWest: {-1, -1},
+	None:  {0, 0},
+	North: {0, -1},
+	East:  {1, 0},
+	South: {0, 1},
+	West:  {-1, 0},
 }
 
-// Directions lists the eight movement directions, excluding None.
-var Directions = [...]Direction{
-	North, NorthEast, East, SouthEast,
-	South, SouthWest, West, NorthWest,
-}
+// Directions lists the four movement directions, excluding None.
+var Directions = [...]Direction{North, East, South, West}
 
-// keys maps the human movement keys to directions. The letters form a 3x3 block
-// on the keyboard with S in the middle, so the layout matches the directions.
+// keys maps the human movement keys to directions.
 var keys = map[rune]Direction{
-	'q': NorthWest, 'w': North, 'e': NorthEast,
-	'a': West, 'd': East,
-	'z': SouthWest, 'x': South, 'c': SouthEast,
+	'w': North,
+	'a': West,
+	's': South,
+	'd': East,
 }
 
 // DirectionForKey maps a movement key to its direction. Returns None for keys
@@ -132,15 +124,8 @@ func (d Direction) Delta() Pos {
 	return deltas[d]
 }
 
-// Diagonal reports whether moving in this direction changes both axes.
-func (d Direction) Diagonal() bool {
-	delta := d.Delta()
-	return delta.X != 0 && delta.Y != 0
-}
-
 var dirNames = [...]string{
-	None: "none", North: "n", NorthEast: "ne", East: "e", SouthEast: "se",
-	South: "s", SouthWest: "sw", West: "w", NorthWest: "nw",
+	None: "none", North: "n", East: "e", South: "s", West: "w",
 }
 
 func (d Direction) String() string {
@@ -161,11 +146,7 @@ func ParseDirection(s string) (Direction, bool) {
 }
 
 // Move applies a direction to a position and reports the resulting position
-// along with whether the move is legal.
-//
-// A diagonal needs both adjoining orthogonal cells to be open. Without that a
-// player could slip between two walls meeting at a corner, which the generated
-// geometry would show as walking through solid wall.
+// along with whether the move is legal. Only geometry can refuse a move.
 func (g *Grid) Move(from Pos, d Direction) (Pos, bool) {
 	if d == None {
 		return from, true
@@ -177,15 +158,6 @@ func (g *Grid) Move(from Pos, d Direction) (Pos, bool) {
 	if !g.Walkable(to) {
 		return from, false
 	}
-
-	if d.Diagonal() {
-		sideX := Pos{X: from.X + delta.X, Y: from.Y}
-		sideY := Pos{X: from.X, Y: from.Y + delta.Y}
-		if !g.Walkable(sideX) || !g.Walkable(sideY) {
-			return from, false
-		}
-	}
-
 	return to, true
 }
 
@@ -310,8 +282,8 @@ func (g *Grid) Walkables() []Pos {
 }
 
 // Reachable returns every cell reachable from start, in reading order, using
-// the real movement rules. Corner cutting is refused, so a diagonal gap counts
-// as closed here exactly as it does in play.
+// the real movement rules. Movement is orthogonal, so cells touching only at a
+// corner are not connected.
 func (g *Grid) Reachable(start Pos) []Pos {
 	if !g.Walkable(start) {
 		return nil

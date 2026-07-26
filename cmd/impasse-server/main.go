@@ -18,6 +18,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/gliderlabs/ssh"
 	"github.com/muesli/termenv"
+	gossh "golang.org/x/crypto/ssh"
 )
 
 type handler struct {
@@ -28,30 +29,40 @@ type handler struct {
 	botAddr  string
 }
 
-// contextKeyAccount is where the public key handler stashes the account so the
-// session handler can pick it up.
-const contextKeyAccount = "impasse-account"
+// contextKeyFingerprint is where the public key handler leaves the key the
+// client offered, if it offered one.
+const contextKeyFingerprint = "impasse-fingerprint"
 
-// authenticate accepts any public key and treats it as an account. There is no
-// registration and no password. A key the server has not seen becomes a new
-// account on the spot.
+// acceptKey records whichever key the client offered and lets everyone in.
 //
-// Anyone can generate more keys, so this does not make multi accounting
-// impossible. What it does is make one key mean exactly one character, which is
-// the property the game needs. Anything stronger is a launch problem.
-func (h *handler) authenticate(ctx ssh.Context, key ssh.PublicKey) bool {
-	acc := h.server.accounts.forKey(key)
-
-	// Give the account a stored row the first time its key is seen, so it has
-	// a name to show and something for results to land on.
-	if h.server.store != nil {
-		if _, err := h.server.store.Ensure(acc.fingerprint); err != nil {
-			log.Printf("ensuring account %s: %v\n", acc.fingerprint, err)
-		}
-	}
-
-	ctx.SetValue(contextKeyAccount, acc)
+// The key is not an identity and never decides who you are. It is remembered
+// only so a machine that has signed in before can skip doing it again. GitHub
+// is the identity, because keys are free and GitHub accounts are not.
+func (h *handler) acceptKey(ctx ssh.Context, key ssh.PublicKey) bool {
+	ctx.SetValue(contextKeyFingerprint, fingerprint(key))
 	return true
+}
+
+// acceptNoKey lets a client with no key in at all. Without this, anyone who
+// has never run ssh-keygen is locked out, and since the key is not the identity
+// there is no reason to demand one.
+func (h *handler) acceptNoKey(ctx ssh.Context, challenge gossh.KeyboardInteractiveChallenge) bool {
+	return true
+}
+
+// signIn resolves who this session belongs to, running the GitHub device flow
+// unless the key is one we already know.
+func (h *handler) signIn(fp string) *account {
+	if fp == "" || h.server.store == nil {
+		return nil
+	}
+	stored, ok := h.server.store.PlayerForKey(fp)
+	if !ok {
+		return nil
+	}
+	return h.server.accounts.forGitHub(GitHubUser{
+		ID: stored.GitHubID, Login: stored.GitHubLogin,
+	})
 }
 
 func setWinsize(f *os.File, w, h int) {
@@ -60,19 +71,22 @@ func setWinsize(f *os.File, w, h int) {
 }
 
 // runMenu shows the pre-game menu and reports whether the player chose to play.
+// runMenu shows the pre-game menu and returns the account to play as, or nil
+// if the player quit or never signed in.
 func (h *handler) runMenu(
 	s ssh.Session,
+	fingerprint string,
 	acc *account,
 	ptyReq ssh.Pty,
 	winCh <-chan ssh.Window,
-) bool {
+) *account {
 	// Over SSH there is no local terminal to probe, so the colour profile
 	// comes from what the client told us.
 	renderer := lipgloss.NewRenderer(s,
 		termenv.WithProfile(colorProfile(ptyReq.Term, s.Environ())),
 		termenv.WithColorCache(true))
 
-	model := newMenuModel(h.server, acc, h.botAddr, renderer)
+	model := newMenuModel(h.server, fingerprint, acc, h.botAddr, renderer)
 	model.width, model.height = ptyReq.Window.Width, ptyReq.Window.Height
 
 	program := tea.NewProgram(model,
@@ -102,27 +116,31 @@ func (h *handler) runMenu(
 	final, err := program.Run()
 	if err != nil {
 		log.Printf("menu: %v\n", err)
-		return false
+		return nil
 	}
 
-	if m, ok := final.(menuModel); ok {
-		return m.choice == choicePlay
+	if m, ok := final.(menuModel); ok && m.choice == choicePlay {
+		return m.acc
 	}
-	return false
+	return nil
 }
 
 func (h *handler) sshHandle(s ssh.Session) {
 
-	acc, _ := s.Context().Value(contextKeyAccount).(*account)
-	if acc == nil {
-		io.WriteString(s, "no account for this key\n")
-		s.Exit(1)
-		return
-	}
+	fp, _ := s.Context().Value(contextKeyFingerprint).(string)
+
+	// A machine that has signed in before is recognised straight away.
+	// Anyone else has to go through the menu's sign in screen.
+	acc := h.signIn(fp)
 
 	// `ssh <host> token` prints the bot token and exits, so the token never
 	// has to fight with the game for the screen.
 	if cmd := s.Command(); len(cmd) > 0 && cmd[0] == "token" {
+		if acc == nil {
+			io.WriteString(s,
+				"Sign in with GitHub first: ssh into this server without a command.\n")
+			return
+		}
 		io.WriteString(s, tokenBanner(h.server.accounts.botToken(acc), h.botAddr))
 		return
 	}
@@ -141,9 +159,11 @@ func (h *handler) sshHandle(s ssh.Session) {
 	}
 
 	// The menu runs here in the server, because it needs the store and the
-	// live world. The renderer is a separate process and only gets spawned
-	// once the player has actually chosen to play.
-	if !h.runMenu(s, acc, ptyReq, winCh) {
+	// live world. It also owns signing in, so it is what turns a session into
+	// a player. The renderer is a separate process and only gets spawned once
+	// the player has actually chosen to play.
+	acc = h.runMenu(s, fp, acc, ptyReq, winCh)
+	if acc == nil {
 		return
 	}
 
@@ -203,15 +223,30 @@ func main() {
 		botAddr    = flag.String("bots", ":2223", "bot API address, empty to disable")
 		maxCons    = flag.Int("maxcons", 0, "max number of connections")
 		renderer   = flag.String("renderer", "impasse-client", "path to renderer")
-		mapFile    = flag.String("map", "maps/test.txt", "path to the ASCII map")
+		mapFile    = flag.String("map", "maps/open.txt", "path to the ASCII map")
 		keyFile    = flag.String("key", "", "path to host key file")
 		dbFile     = flag.String("db", "impasse.db", "path to the score database")
-		matchLen   = flag.Duration("match", DefaultMatchDuration, "match length")
-		breakLen   = flag.Duration("intermission", DefaultIntermissionDuration,
+		ghClientID = flag.String("github-client-id", "",
+			"GitHub OAuth app client id. Also read from IMPASSE_GITHUB_CLIENT_ID")
+		matchLen = flag.Duration("match", DefaultMatchDuration, "match length")
+		breakLen = flag.Duration("intermission", DefaultIntermissionDuration,
 			"break between matches")
 	)
 
 	flag.Parse()
+
+	// GitHub sign in is not optional. Without it an SSH key would be the
+	// identity again, and keys are free, so one person could hold as many
+	// players as they liked.
+	clientID := *ghClientID
+	if clientID == "" {
+		clientID = os.Getenv("IMPASSE_GITHUB_CLIENT_ID")
+	}
+	if clientID == "" {
+		log.Fatalln("a GitHub OAuth client id is required: pass --github-client-id " +
+			"or set IMPASSE_GITHUB_CLIENT_ID. The client id is not a secret, " +
+			"but the client secret is never needed and must not be given here.")
+	}
 
 	w, err := loadWorld(*mapFile)
 	if err != nil {
@@ -247,6 +282,13 @@ func main() {
 	cs := newServer(w, addrs...)
 	cs.store = db
 
+	// Bot tokens outlive the process, so a restart does not silently break
+	// every bot that already has one.
+	cs.accounts.loadToken = db.BotToken
+	cs.accounts.saveToken = db.SetBotToken
+
+	cs.oauth = newGitHubOAuth(clientID)
+
 	done := make(chan struct{})
 
 	connectionDied := make(chan struct{})
@@ -267,9 +309,12 @@ func main() {
 	}
 
 	s := &ssh.Server{
-		Addr:             fmt.Sprintf(":%d", *port),
-		Handler:          h.sshHandle,
-		PublicKeyHandler: h.authenticate,
+		Addr:    fmt.Sprintf(":%d", *port),
+		Handler: h.sshHandle,
+		// A key is welcome but not required. Both handlers are set so a
+		// client with a key uses it and a client without still gets in.
+		PublicKeyHandler:           h.acceptKey,
+		KeyboardInteractiveHandler: h.acceptNoKey,
 	}
 
 	if *keyFile != "" {

@@ -21,11 +21,8 @@ from collections import deque
 
 WALL = "#"
 
-# The eight directions, and the wire names the server uses for them.
-DIRECTIONS = [
-    (0, -1, "n"), (1, -1, "ne"), (1, 0, "e"), (1, 1, "se"),
-    (0, 1, "s"), (-1, 1, "sw"), (-1, 0, "w"), (-1, -1, "nw"),
-]
+# The four directions, and the wire names the server uses for them.
+DIRECTIONS = [(0, -1, "n"), (1, 0, "e"), (0, 1, "s"), (-1, 0, "w")]
 
 
 class Connection:
@@ -75,23 +72,14 @@ class Maze:
         return self.rows[y][x] != WALL
 
     def legal(self, x, y, dx, dy):
-        """A diagonal needs both adjoining orthogonal cells open.
-
-        Without this the bot plans routes through corner gaps the server will
-        refuse, and then wonders why it is standing still.
-        """
-        if not self.walkable(x + dx, y + dy):
-            return False
-        if dx and dy:
-            return self.walkable(x + dx, y) and self.walkable(x, y + dy)
-        return True
+        """Movement is orthogonal, so only the target cell matters."""
+        return self.walkable(x + dx, y + dy)
 
     def step_towards(self, start, goal):
         """First direction along a shortest path, or None if unreachable.
 
-        Breadth first, because every step costs one tick. Diagonals cost the
-        same as orthogonals, so distance here is Chebyshev and long diagonal
-        runs come out ahead.
+        Breadth first, because every step costs one tick and movement is
+        orthogonal, so distance here is Manhattan.
         """
         if start == goal:
             return None

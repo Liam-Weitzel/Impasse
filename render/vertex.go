@@ -9,20 +9,23 @@ import (
 )
 
 type Vertex struct {
-	coord  mgl32.Vec3
-	normal mgl32.Vec3
+	coord    mgl32.Vec3
+	texCoord mgl32.Vec2
+	normal   mgl32.Vec3
 }
 
 const (
-	vertexSize = unsafe.Sizeof(Vertex{})
-	coordOfs   = unsafe.Offsetof(Vertex{}.coord)
-	normalOfs  = unsafe.Offsetof(Vertex{}.normal)
+	vertexSize  = unsafe.Sizeof(Vertex{})
+	coordOfs    = unsafe.Offsetof(Vertex{}.coord)
+	texCoordOfs = unsafe.Offsetof(Vertex{}.texCoord)
+	normalOfs   = unsafe.Offsetof(Vertex{}.normal)
 )
 
 // The indices have to match the layout locations in shape.vert.
 func bindVBO(vbo uint32) {
 	const (
 		positionIdx = iota
+		texCoordIdx
 		normalIdx
 	)
 	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
@@ -32,6 +35,12 @@ func bindVBO(vbo uint32) {
 		int32(vertexSize),
 		gl.PtrOffset(int(coordOfs)))
 	gl.EnableVertexAttribArray(positionIdx)
+
+	gl.VertexAttribPointer(
+		texCoordIdx, 2, gl.FLOAT, false,
+		int32(vertexSize),
+		gl.PtrOffset(int(texCoordOfs)))
+	gl.EnableVertexAttribArray(texCoordIdx)
 
 	gl.VertexAttribPointer(
 		normalIdx, 3, gl.FLOAT, false,

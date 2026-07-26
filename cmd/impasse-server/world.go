@@ -55,8 +55,11 @@ type action struct {
 }
 
 type player struct {
-	id  uint64
-	pos grid.Pos
+	id uint64
+	// owner is the GitHub account this character belongs to, used to give
+	// them their progress back if they reconnect during the same match.
+	owner int64
+	pos   grid.Pos
 
 	// queued is the action for the next tick. Queuing again before the tick
 	// locks replaces it, so only the last one counts.
@@ -86,6 +89,11 @@ type world struct {
 
 	// pending holds stuns cast but not yet landed.
 	pending []pendingStun
+
+	// resumes remembers where a player was and what they had scored when
+	// they dropped, so reconnecting inside the same match does not wipe it.
+	// Cleared when a match starts, since a new match resets everyone anyway.
+	resumes map[int64]resume
 
 	// spawn is where every player enters. All players share one point, so
 	// the start of a round is a scramble out of the same door.
@@ -152,6 +160,7 @@ func loadWorld(path string) (*world, error) {
 		g:          g,
 		players:    make(map[uint64]*player),
 		objectives: objectives,
+		resumes:    map[int64]resume{},
 		spawn:      spawn,
 		hasMarker:  ok,
 		walkable:   len(g.Walkables()),
@@ -171,20 +180,55 @@ func loadWorld(path string) (*world, error) {
 	return w, nil
 }
 
-// join places a new player and returns it. Everyone starts on the same cell.
-// Players stack, so there is nothing to resolve when several arrive at once.
-func (w *world) join() *player {
+// resume is what a disconnected player gets back if they return during the
+// same match.
+type resume struct {
+	match int
+	pos   grid.Pos
+	score int
+}
+
+// join places a character for an account and returns it.
+//
+// Dropping out and coming back inside one match gives you your score and your
+// position back. Without that, a flaky connection or an accidental Ctrl-C costs
+// the whole match, and the punishment lands hardest on exactly the people least
+// able to do anything about it. Across a match boundary nothing carries, since
+// a new match resets everyone regardless.
+func (w *world) join(owner int64) *player {
 	p := &player{
-		id:  w.nextID,
-		pos: w.spawn,
+		id:    w.nextID,
+		owner: owner,
+		pos:   w.spawn,
 	}
 	w.nextID++
+
+	if r, ok := w.resumes[owner]; ok && r.match == w.matchNumber && owner != 0 {
+		p.pos = r.pos
+		p.score = r.score
+		delete(w.resumes, owner)
+	}
 
 	w.players[p.id] = p
 	return p
 }
 
+// remove takes a character out of the world, keeping what it had in case the
+// player comes straight back.
 func (w *world) remove(id uint64) {
+	p := w.players[id]
+	if p == nil {
+		return
+	}
+
+	if p.owner != 0 {
+		w.resumes[p.owner] = resume{
+			match: w.matchNumber,
+			pos:   p.pos,
+			score: p.score,
+		}
+	}
+
 	delete(w.players, id)
 }
 

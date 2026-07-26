@@ -4,6 +4,7 @@
 precision highp float;
 #endif
 
+in vec2 texCoord;
 in vec3 normal;
 in vec3 lightVec;
 in float fogDepth;
@@ -12,17 +13,21 @@ out vec4 fragColor;
 
 uniform vec3 ambientCol; // The light and object's combined ambient color
 uniform vec3 diffuseCol; // The light and object's combined diffuse color
+uniform sampler2D tiles;
+uniform bool textured;
 
 const float invRadiusSq = 0.00001;
 const float fogNear = 0.0;
 const float fogFar = 1500.0;
 const vec4 fogColor = vec4(0.0, 0.0, 0.0, 1.0);
 
-// Surfaces are untextured. Colour comes from the ambient and diffuse uniforms,
-// this is just the base the light is applied to.
-const vec4 surface = vec4(0.7, 0.7, 0.7, 1.0);
+// The base an untextured surface is lit from. Textured surfaces take it from
+// the atlas instead.
+const vec4 flat_surface = vec4(0.7, 0.7, 0.7, 1.0);
 
 void main() {
+
+    vec4 surface = textured ? texture(tiles, texCoord) : flat_surface;
 
     // ambient lighting
     vec3 ambient = vec3(ambientCol * surface.xyz);

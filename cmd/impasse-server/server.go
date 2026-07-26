@@ -52,7 +52,10 @@ type server struct {
 	world    *world
 	accounts *accounts
 	store    *store
-	quit     bool
+	// oauth is nil when the server runs without GitHub sign in, in which
+	// case an SSH key alone is an account.
+	oauth oauth
+	quit  bool
 }
 
 func newServer(w *world, addrs ...string) *server {
@@ -222,11 +225,11 @@ func (s *server) authenticate(c *conn, r *proto.Reader) bool {
 		c.kind = kind
 
 		if first {
-			p := s.world.join()
+			p := s.world.join(acc.githubID)
 			s.accounts.setPlayer(acc, p.id)
 			c.id = p.id
 			log.Printf("player %d: %s joined as %s at %v\n",
-				p.id, acc.fingerprint, kind, p.pos)
+				p.id, acc.githubLogin, kind, p.pos)
 		} else {
 			id, _ := s.accounts.player(acc)
 			c.id = id
@@ -294,7 +297,7 @@ func (s *server) recordResults(results []result) {
 		if c == nil || c.acc == nil {
 			continue
 		}
-		if err := s.store.RecordMatch(c.acc.fingerprint, r.score); err != nil {
+		if err := s.store.RecordMatch(c.acc.githubID, r.score); err != nil {
 			log.Printf("recording result for player %d: %v\n", r.playerID, err)
 		}
 	}
@@ -409,7 +412,8 @@ func (s *server) run(done chan struct{}) error {
 // lobbyPlayer is one character as the menu sees it. Names are not resolved
 // here, because the server does not own the store.
 type lobbyPlayer struct {
-	Fingerprint string
+	GitHubID    int64
+	Login       string
 	Score       int
 	Channel     int
 	HasBot      bool
@@ -448,7 +452,8 @@ func (s *server) lobby() lobbyInfo {
 			if lp == nil {
 				continue
 			}
-			lp.Fingerprint = c.acc.fingerprint
+			lp.GitHubID = c.acc.githubID
+			lp.Login = c.acc.githubLogin
 			switch c.kind {
 			case kindBot:
 				lp.HasBot = true
@@ -467,7 +472,7 @@ func (s *server) lobby() lobbyInfo {
 		if info.Players[i].Score != info.Players[j].Score {
 			return info.Players[i].Score > info.Players[j].Score
 		}
-		return info.Players[i].Fingerprint < info.Players[j].Fingerprint
+		return info.Players[i].GitHubID < info.Players[j].GitHubID
 	})
 
 	return info

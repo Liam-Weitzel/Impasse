@@ -75,70 +75,6 @@ func TestMoveIntoWallIsRefused(t *testing.T) {
 	}
 }
 
-// A diagonal is only legal when both adjoining orthogonal cells are open,
-// otherwise a player would cut the corner and clip through the geometry.
-func TestDiagonalCornerCutting(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		m    string
-		want bool
-	}{
-		{
-			// Both orthogonal neighbours open.
-			name: "open",
-			m: "" +
-				"...\n" +
-				"...\n" +
-				"...",
-			want: true,
-		},
-		{
-			// North blocked, so the NE diagonal cuts a corner.
-			name: "one side blocked",
-			m: "" +
-				".#.\n" +
-				"...\n" +
-				"...",
-			want: false,
-		},
-		{
-			// East blocked.
-			name: "other side blocked",
-			m: "" +
-				"...\n" +
-				"..#\n" +
-				"...",
-			want: false,
-		},
-		{
-			name: "both sides blocked",
-			m: "" +
-				".#.\n" +
-				"..#\n" +
-				"...",
-			want: false,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			g := mustParse(t, tc.m)
-
-			// Move north east out of the centre.
-			_, ok := g.Move(Pos{1, 1}, NorthEast)
-			if ok != tc.want {
-				t.Fatalf("legal = %v, want %v", ok, tc.want)
-			}
-		})
-	}
-}
-
-func TestDiagonalTargetWallIsRefusedEvenWithOpenSides(t *testing.T) {
-	g := mustParse(t, "..#\n...\n...")
-
-	if _, ok := g.Move(Pos{1, 1}, NorthEast); ok {
-		t.Fatal("move onto a wall should be refused")
-	}
-}
-
 func TestMoveNoneStaysPut(t *testing.T) {
 	g := mustParse(t, "...\n...\n...")
 
@@ -150,23 +86,24 @@ func TestMoveNoneStaysPut(t *testing.T) {
 
 func TestKeyMapping(t *testing.T) {
 	want := map[rune]Direction{
-		'q': NorthWest, 'w': North, 'e': NorthEast,
-		'a': West, 'd': East,
-		'z': SouthWest, 'x': South, 'c': SouthEast,
+		'w': North, 'a': West, 's': South, 'd': East,
 	}
 	for k, d := range want {
 		if got := DirectionForKey(k); got != d {
 			t.Errorf("key %q: got %v, want %v", k, got, d)
 		}
 	}
-	if got := DirectionForKey('s'); got != None {
-		t.Errorf("key 's': got %v, want none", got)
+	// e is the stun, and the old diagonal keys move nothing now.
+	for _, k := range []rune{'e', 'q', 'z', 'x', 'c', ' '} {
+		if got := DirectionForKey(k); got != None {
+			t.Errorf("key %q: got %v, want none", k, got)
+		}
 	}
 }
 
-// Every key must move exactly one cell, so a full lap of the keys walks a ring
-// around the start and returns to it.
-func TestEveryDirectionMovesOneCell(t *testing.T) {
+// Every key moves exactly one cell, and only along one axis. A key that moved
+// diagonally would reintroduce the corner problem the rules no longer handle.
+func TestEveryDirectionMovesOneCellOrthogonally(t *testing.T) {
 	g := mustParse(t, "...\n...\n...")
 	start := Pos{1, 1}
 
@@ -176,16 +113,33 @@ func TestEveryDirectionMovesOneCell(t *testing.T) {
 			t.Fatalf("key %q: refused on open ground", k)
 		}
 		dx, dy := got.X-start.X, got.Y-start.Y
-		if dx < -1 || dx > 1 || dy < -1 || dy > 1 || (dx == 0 && dy == 0) {
-			t.Errorf("key %q: moved by (%d,%d)", k, dx, dy)
+		if abs(dx)+abs(dy) != 1 {
+			t.Errorf("key %q: moved by (%d,%d), want one cell on one axis", k, dx, dy)
 		}
 	}
 }
 
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// Cells touching only at a corner are not connected, because there is no
+// diagonal move to get between them.
+func TestCornerTouchingCellsAreNotConnected(t *testing.T) {
+	g := mustParse(t, ""+
+		"####\n"+
+		"#.##\n"+
+		"##.#\n"+
+		"####")
+
+	samePositions(t, g.Reachable(Pos{1, 1}), []Pos{{1, 1}})
+}
+
 func TestDirectionRoundTrip(t *testing.T) {
-	for _, d := range []Direction{
-		None, North, NorthEast, East, SouthEast, South, SouthWest, West, NorthWest,
-	} {
+	for _, d := range []Direction{None, North, East, South, West} {
 		got, ok := ParseDirection(d.String())
 		if !ok || got != d {
 			t.Errorf("%v round tripped to %v %v", d, got, ok)
@@ -240,18 +194,6 @@ func TestReachableFromWallIsEmpty(t *testing.T) {
 	if got := g.Reachable(Pos{0, 0}); got != nil {
 		t.Fatalf("got %v, want nil", got)
 	}
-}
-
-// A diagonal gap is closed, because moving through it would cut a corner. The
-// two halves here touch only at a corner and must not be reachable.
-func TestReachableRefusesCornerGap(t *testing.T) {
-	g := mustParse(t, ""+
-		"####\n"+
-		"#.##\n"+
-		"##.#\n"+
-		"####")
-
-	samePositions(t, g.Reachable(Pos{1, 1}), []Pos{{1, 1}})
 }
 
 func TestLargestRegionPicksTheBiggest(t *testing.T) {

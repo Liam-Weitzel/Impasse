@@ -69,7 +69,7 @@ func TestIntermissionBecomesAMatch(t *testing.T) {
 // Pickups come back with the match. This is the whole respawn rule.
 func TestObjectivesReturnEachMatch(t *testing.T) {
 	w := matchWorld(t)
-	p := w.join()
+	p := w.join(0)
 
 	runTicks(w, w.intermissionTicks())
 	if len(w.objectives) != 1 {
@@ -102,7 +102,7 @@ func TestObjectivesReturnEachMatch(t *testing.T) {
 
 func TestMatchEndReportsScores(t *testing.T) {
 	w := matchWorld(t)
-	p := w.join()
+	p := w.join(0)
 
 	runTicks(w, w.intermissionTicks())
 
@@ -126,7 +126,7 @@ func TestMatchEndReportsScores(t *testing.T) {
 // Scores stay up through the break, then clear when the next match starts.
 func TestScoresSurviveTheBreakThenReset(t *testing.T) {
 	w := matchWorld(t)
-	p := w.join()
+	p := w.join(0)
 
 	runTicks(w, w.intermissionTicks())
 	p.pos = grid.Pos{X: 2, Y: 1}
@@ -148,7 +148,7 @@ func TestScoresSurviveTheBreakThenReset(t *testing.T) {
 // will be.
 func TestNoScoringDuringIntermission(t *testing.T) {
 	w := matchWorld(t)
-	p := w.join()
+	p := w.join(0)
 	p.pos = grid.Pos{X: 2, Y: 1}
 
 	w.queueLoot(p.id)
@@ -166,7 +166,7 @@ func TestNoScoringDuringIntermission(t *testing.T) {
 // wherever they were standing when the last one ended.
 func TestMatchStartReturnsPlayersToSpawn(t *testing.T) {
 	w := matchWorld(t)
-	p := w.join()
+	p := w.join(0)
 
 	runTicks(w, w.intermissionTicks())
 	p.pos = grid.Pos{X: 3, Y: 2}
@@ -182,8 +182,8 @@ func TestMatchStartReturnsPlayersToSpawn(t *testing.T) {
 // A burst in flight must not survive the boundary and land into the next match.
 func TestMatchStartClearsCombatState(t *testing.T) {
 	w := matchWorld(t)
-	a := w.join()
-	b := w.join()
+	a := w.join(0)
+	b := w.join(0)
 
 	runTicks(w, w.intermissionTicks())
 
@@ -235,7 +235,7 @@ func TestMatchStateIsPublished(t *testing.T) {
 // clock advances after actions resolve.
 func TestPickupOnTheFinalTickCounts(t *testing.T) {
 	w := matchWorld(t)
-	p := w.join()
+	p := w.join(0)
 
 	runTicks(w, w.intermissionTicks())
 	p.pos = grid.Pos{X: 2, Y: 1}
@@ -263,5 +263,97 @@ func TestTicksIn(t *testing.T) {
 	}
 	if got := ticksIn(time.Second, 0); got != 1 {
 		t.Errorf("got %d for a zero tick, want 1", got)
+	}
+}
+
+// Dropping out and coming back inside one match must not cost the match. A
+// flaky connection or an accidental Ctrl-C should not wipe a player's score.
+func TestRejoinKeepsScoreWithinAMatch(t *testing.T) {
+	w := matchWorld(t)
+	runTicks(w, w.intermissionTicks())
+
+	const owner = 42
+	p := w.join(owner)
+	p.pos = grid.Pos{X: 2, Y: 1}
+
+	w.queueLoot(p.id)
+	runTicks(w, LootTicks)
+	if p.score != 1 {
+		t.Fatalf("score %d, want 1 before dropping", p.score)
+	}
+	away := p.pos
+
+	w.remove(p.id)
+
+	back := w.join(owner)
+	if back.score != 1 {
+		t.Errorf("score %d after rejoining, want the 1 they earned", back.score)
+	}
+	if back.pos != away {
+		t.Errorf("came back at %v, want %v", back.pos, away)
+	}
+}
+
+// A new match resets everyone, so nothing carries across the boundary.
+func TestRejoinAfterAMatchStartsFresh(t *testing.T) {
+	w := matchWorld(t)
+	runTicks(w, w.intermissionTicks())
+
+	const owner = 42
+	p := w.join(owner)
+	p.pos = grid.Pos{X: 2, Y: 1}
+	w.queueLoot(p.id)
+	runTicks(w, LootTicks)
+
+	w.remove(p.id)
+
+	// Run out the match and the break.
+	runTicks(w, w.phaseTicks)
+	runTicks(w, w.phaseTicks)
+
+	back := w.join(owner)
+	if back.score != 0 {
+		t.Errorf("score %d in a new match, want 0", back.score)
+	}
+	if back.pos != w.spawn {
+		t.Errorf("started at %v, want the spawn", back.pos)
+	}
+}
+
+// One player's progress must not be handed to somebody else.
+func TestResumeIsPerAccount(t *testing.T) {
+	w := matchWorld(t)
+	runTicks(w, w.intermissionTicks())
+
+	a := w.join(1)
+	a.pos = grid.Pos{X: 2, Y: 1}
+	w.queueLoot(a.id)
+	runTicks(w, LootTicks)
+	w.remove(a.id)
+
+	other := w.join(2)
+	if other.score != 0 {
+		t.Errorf("a different account inherited a score of %d", other.score)
+	}
+	if other.pos != w.spawn {
+		t.Errorf("a different account inherited position %v", other.pos)
+	}
+}
+
+// Accounts are only zero in tests, and a zero owner must not pool everyone's
+// progress into one bucket.
+func TestZeroOwnerNeverResumes(t *testing.T) {
+	w := matchWorld(t)
+	runTicks(w, w.intermissionTicks())
+
+	a := w.join(0)
+	a.pos = grid.Pos{X: 2, Y: 1}
+	w.queueLoot(a.id)
+	runTicks(w, LootTicks)
+	w.remove(a.id)
+
+	b := w.join(0)
+	if b.score != 0 {
+		t.Errorf("score %d leaked between anonymous players", b.score)
 	}
 }

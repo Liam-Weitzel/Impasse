@@ -23,21 +23,38 @@ const (
 // Vertices carry no texture coordinates. Shapes built here are drawn untextured
 // and take their colour from the diffuse and ambient uniforms.
 type MeshBuilder struct {
-	color mgl32.Vec3
+	color    mgl32.Vec3
+	textured bool
 
 	vertices []Vertex
 	indices  []uint16
+	bounds   Bounds
+	empty    bool
 
 	shapes []*CompiledShape
 }
 
 func NewMeshBuilder(color mgl32.Vec3) *MeshBuilder {
-	return &MeshBuilder{color: color}
+	return &MeshBuilder{color: color, empty: true}
+}
+
+// NewTexturedMeshBuilder builds shapes that sample the tile atlas. The colour
+// still applies, tinting whatever the tile holds, so lighting and team colour
+// both still work.
+func NewTexturedMeshBuilder(color mgl32.Vec3) *MeshBuilder {
+	return &MeshBuilder{color: color, textured: true, empty: true}
 }
 
 // AddQuad appends one quad. The corners must be given in order around the face,
 // not crosswise, or the fan comes out as a bowtie.
+// AddQuad appends an untextured quad.
 func (mb *MeshBuilder) AddQuad(a, b, c, d, normal mgl32.Vec3) error {
+	return mb.AddTexturedQuad(a, b, c, d, normal, [4][2]float32{})
+}
+
+// AddTexturedQuad appends a quad with texture coordinates, one pair per corner
+// in the same order as the corners.
+func (mb *MeshBuilder) AddTexturedQuad(a, b, c, d, normal mgl32.Vec3, uv [4][2]float32) error {
 	if len(mb.vertices)+4 > maxShapeVertices {
 		if err := mb.flush(); err != nil {
 			return err
@@ -46,17 +63,36 @@ func (mb *MeshBuilder) AddQuad(a, b, c, d, normal mgl32.Vec3) error {
 
 	base := uint16(len(mb.vertices))
 
-	for _, corner := range [4]mgl32.Vec3{a, b, c, d} {
+	for i, corner := range [4]mgl32.Vec3{a, b, c, d} {
 		mb.vertices = append(mb.vertices, Vertex{
-			coord:  corner,
-			normal: normal,
+			coord:    corner,
+			texCoord: mgl32.Vec2{uv[i][0], uv[i][1]},
+			normal:   normal,
 		})
+		mb.extend(corner)
 	}
 
 	mb.indices = append(mb.indices,
 		base, base+1, base+2, base+3, primitiveRestart)
 
 	return nil
+}
+
+// extend grows the running bounding box to include a point.
+func (mb *MeshBuilder) extend(p mgl32.Vec3) {
+	if mb.empty {
+		mb.bounds = Bounds{Min: p, Max: p}
+		mb.empty = false
+		return
+	}
+	for i := 0; i < 3; i++ {
+		if p[i] < mb.bounds.Min[i] {
+			mb.bounds.Min[i] = p[i]
+		}
+		if p[i] > mb.bounds.Max[i] {
+			mb.bounds.Max[i] = p[i]
+		}
+	}
 }
 
 // Compile uploads whatever is left and returns every shape built so far. The
@@ -98,18 +134,22 @@ func (mb *MeshBuilder) flush() error {
 	}
 
 	mb.shapes = append(mb.shapes, &CompiledShape{
-		vbo: vbo,
-		ibo: ibo,
+		Bounds: mb.bounds,
+		vbo:    vbo,
+		ibo:    ibo,
 		// Quads are wound counter clockwise seen from the front, but the
 		// projection mirrors clip space, so on screen they come out
 		// clockwise. cullCCW(true) selects gl.CW.
 		ccw:          true,
 		diffuseColor: mb.color,
 		nIndices:     int32(len(mb.indices)),
+		textured:     mb.textured,
 	})
 
 	mb.vertices = mb.vertices[:0]
 	mb.indices = mb.indices[:0]
+	mb.bounds = Bounds{}
+	mb.empty = true
 
 	return nil
 }

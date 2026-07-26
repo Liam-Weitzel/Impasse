@@ -73,14 +73,14 @@ func testServer(t *testing.T) (*server, string) {
 // who has run `ssh <host> token`.
 func testToken(t *testing.T, s *server) string {
 	t.Helper()
-	return s.accounts.botToken(s.accounts.forKey(testKey(t)))
+	return s.accounts.botToken(s.accounts.forGitHub(testUser()))
 }
 
 // testAccount makes a fresh account and returns a token of each kind, which is
 // what a player driving a bot from one terminal actually holds.
 func testAccount(t *testing.T, s *server) (bot, session string) {
 	t.Helper()
-	acc := s.accounts.forKey(testKey(t))
+	acc := s.accounts.forGitHub(testUser())
 	return s.accounts.botToken(acc), s.accounts.sessionToken(acc)
 }
 
@@ -271,13 +271,16 @@ func TestBotCanLootOverTheWire(t *testing.T) {
 	}
 	target := st.Objectives[0]
 
-	// Spawn is (1,1), the pickup is at (3,2). Southeast then east.
-	b.move("se")
-	b.waitFor("the first step", func(s proto.State) bool {
-		p := b.self(s)
-		return p.X == 2 && p.Y == 2
-	})
-	b.move("e")
+	// Spawn is (1,1), the pickup is at (3,2). Movement is orthogonal, so east
+	// twice then south.
+	for i := 0; i < 2; i++ {
+		want := 2 + i
+		b.move("e")
+		b.waitFor("a step east", func(s proto.State) bool {
+			return b.self(s).X == want
+		})
+	}
+	b.move("s")
 	b.waitFor("arrival", func(s proto.State) bool {
 		p := b.self(s)
 		return p.X == target.X && p.Y == target.Y
@@ -642,7 +645,7 @@ func dialRejected(t *testing.T, addr, token string) string {
 func TestSecondBotIsRefused(t *testing.T) {
 	srv, addr := testServer(t)
 
-	acc := srv.accounts.forKey(testKey(t))
+	acc := srv.accounts.forGitHub(testUser())
 	token := srv.accounts.botToken(acc)
 
 	dialBotWithToken(t, addr, token)
@@ -657,7 +660,7 @@ func TestSecondBotIsRefused(t *testing.T) {
 func TestSecondRendererIsRefused(t *testing.T) {
 	srv, addr := testServer(t)
 
-	acc := srv.accounts.forKey(testKey(t))
+	acc := srv.accounts.forGitHub(testUser())
 	first := srv.accounts.sessionToken(acc)
 	second := srv.accounts.sessionToken(acc)
 
@@ -672,7 +675,7 @@ func TestSecondRendererIsRefused(t *testing.T) {
 func TestReconnectAfterDisconnect(t *testing.T) {
 	srv, addr := testServer(t)
 
-	acc := srv.accounts.forKey(testKey(t))
+	acc := srv.accounts.forGitHub(testUser())
 
 	first := dialBotWithToken(t, addr, srv.accounts.sessionToken(acc))
 	first.waitFor("the character", func(s proto.State) bool {
