@@ -29,10 +29,18 @@ const (
 	objectiveRadius = cellSize * 0.18
 	// Pickups float clear of the floor so they read at a steep camera angle,
 	// and bob so they are the only moving thing on an empty floor.
-	objectiveHeight = cellSize * 0.3
-	objectiveBob    = cellSize * 0.09
-	objectivePeriod = 2200 * time.Millisecond
+	objectiveHeight  = cellSize * 0.3
+	objectiveBob     = cellSize * 0.09
+	objectivePeriod  = 2200 * time.Millisecond
+	pickupSpinPeriod = 5000 * time.Millisecond
 )
+
+// deleteShapes releases a model's geometry.
+func deleteShapes(shapes []*render.CompiledShape) {
+	for _, cs := range shapes {
+		cs.Delete()
+	}
+}
 
 // attendee is another player, or us. Positions are held as the cell we came
 // from and the cell we are going to, so a move can be drawn part way through.
@@ -72,18 +80,23 @@ type client struct {
 	fov      float32
 	camera   *camera
 	renderer *render.Renderer
-	sphere   *render.Sphere
+
+	// playerModel and pickupModel are ordinary shapes drawn with a model
+	// transform, so a marker can spin or be swapped without the renderer
+	// knowing anything about it.
+	playerModel []*render.CompiledShape
+	pickupModel []*render.CompiledShape
+	modelKind   modelKind
+	instances   []render.Instance
 
 	fbo           uint32
 	freeFBO       func()
 	renderedImage *image.RGBA
 
 	attendees map[uint64]*attendee
-	spheres   []render.SpherePosition
 
 	// objectives are the uncollected pickups, in world coordinates.
 	objectives []mgl32.Vec3
-	objSphere  *render.Sphere
 	arrow      []*render.CompiledShape
 	telegraph  []*render.CompiledShape
 
@@ -122,11 +135,13 @@ func startClient(
 	sessionDuration time.Duration,
 	tilesPath string,
 	th *theme,
+	model modelKind,
 ) error {
 
 	c := &client{
 		tilesPath:       tilesPath,
 		theme:           th,
+		modelKind:       model,
 		con:             con,
 		userID:          welcome.ID,
 		g:               g,
@@ -205,15 +220,15 @@ func (c *client) run() error {
 
 	c.updateProjection(aspect)
 
-	if c.sphere, err = render.NewSphere(playerRadius, 12, 12, false); err != nil {
+	if c.playerModel, err = buildPlayerModel(c.modelKind, playerRadius); err != nil {
 		return err
 	}
-	defer c.sphere.Delete()
+	defer deleteShapes(c.playerModel)
 
-	if c.objSphere, err = render.NewSphere(objectiveRadius, 10, 10, false); err != nil {
+	if c.pickupModel, err = buildPickup(objectiveRadius); err != nil {
 		return err
 	}
-	defer c.objSphere.Delete()
+	defer deleteShapes(c.pickupModel)
 
 	if c.arrow, err = buildArrow(c.theme.arrow); err != nil {
 		return err
@@ -493,11 +508,9 @@ func (c *client) render() {
 
 	c.drawTelegraphs(view, alpha)
 
-	c.spheres = c.spheres[:0]
+	c.instances = c.instances[:0]
 	for id, a := range c.attendees {
 		pos := a.at(alpha)
-		// Lift the sphere off the floor so it does not sink into it.
-		pos[2] += playerRadius
 		col := a.col
 		if id == c.userID {
 			col = col.Mul(c.theme.selfBoost)
@@ -505,23 +518,28 @@ func (c *client) render() {
 		if a.stunned {
 			col = c.theme.stunned
 		}
-		c.spheres = append(c.spheres, render.SpherePosition{Pos: pos, Col: col})
+		c.instances = append(c.instances, render.Instance{
+			Model: mgl32.Translate3D(pos[0], pos[1], pos[2]),
+			Col:   col,
+		})
 	}
-	if len(c.spheres) > 0 {
-		c.renderer.RenderSpheresMesh(view, c.sphere, c.spheres)
-	}
+	c.renderer.RenderInstances(view, c.playerModel, c.instances)
 
 	if len(c.objectives) > 0 {
+		// Bob and spin. A rotating silhouette is the cheapest way to make
+		// something read as an object rather than a mark on the floor.
 		bob := objectiveBob * (pulse(objectivePeriod) - 0.5) * 2
-		c.spheres = c.spheres[:0]
+		spin := pulse(pickupSpinPeriod) * 2 * math.Pi
+
+		c.instances = c.instances[:0]
 		for _, pos := range c.objectives {
-			pos[2] += bob
-			c.spheres = append(c.spheres, render.SpherePosition{
-				Pos: pos,
+			c.instances = append(c.instances, render.Instance{
+				Model: mgl32.Translate3D(pos[0], pos[1], pos[2]+bob).
+					Mul4(mgl32.HomogRotate3DZ(spin)),
 				Col: c.theme.objective,
 			})
 		}
-		c.renderer.RenderSpheresMesh(view, c.objSphere, c.spheres)
+		c.renderer.RenderInstances(view, c.pickupModel, c.instances)
 	}
 
 	c.drawArrow(view, alpha)

@@ -154,45 +154,10 @@ func (r *Renderer) RenderMesh(view mgl32.Mat4, css []*CompiledShape) {
 	}
 }
 
-type SpherePosition struct {
-	Pos mgl32.Vec3
-	Col mgl32.Vec3
-}
-
-// RenderSpheresMesh draws one sphere per position, using the same view matrix
-// convention as RenderMesh. Call it after RenderMesh, which sets the shared
-// uniforms and binds the program.
-func (r *Renderer) RenderSpheresMesh(
-	view mgl32.Mat4,
-	sp *Sphere,
-	positions []SpherePosition,
-) {
-	gl.Enable(gl.CULL_FACE)
-	gl.CullFace(gl.BACK)
-	r.state.lastCull = gl.CW
-	gl.FrontFace(r.state.lastCull)
-
-	diff := mgl32.Vec3{0.5, 0.5, 0.5}
-	gl.Uniform3fv(r.state.diffuseColLoc, 1, &diff[0])
-	// Players and pickups are solid colour, never textured.
-	r.state.setTextured(false)
-
-	for i := range positions {
-		mvMat := view.Mul4(mgl32.Translate3D(
-			positions[i].Pos[0],
-			positions[i].Pos[1],
-			positions[i].Pos[2]))
-		normalMat := mvMat.Inv().Transpose()
-
-		gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
-		gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
-
-		gl.Uniform3fv(r.state.ambientColLoc, 1, &positions[i].Col[0])
-
-		bindVBO(sp.vbo)
-		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, sp.ibo)
-		gl.DrawElements(gl.TRIANGLES, sp.nIndices, gl.UNSIGNED_SHORT, unsafe.Pointer(nil))
-	}
+// Instance is one copy of a model: where it goes and what colour it is.
+type Instance struct {
+	Model mgl32.Mat4
+	Col   mgl32.Vec3
 }
 
 // RenderShapeAt draws one shape with an extra model transform and its own
@@ -203,16 +168,31 @@ func (r *Renderer) RenderShapeAt(
 	cs *CompiledShape,
 	col mgl32.Vec3,
 ) {
-	mvMat := view.Mul4(model)
-	normalMat := mvMat.Inv().Transpose()
+	r.RenderInstances(view, []*CompiledShape{cs}, []Instance{{Model: model, Col: col}})
+}
 
-	gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
-	gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
-	gl.Uniform3fv(r.state.ambientColLoc, 1, &col[0])
+// RenderInstances draws the same shapes once per instance. The shared uniforms
+// are put back once at the end rather than after every copy, which matters when
+// there is one of these per player and per pickup on the map.
+func (r *Renderer) RenderInstances(view mgl32.Mat4, css []*CompiledShape, instances []Instance) {
+	if len(css) == 0 || len(instances) == 0 {
+		return
+	}
 
-	cs.Render(r.state)
+	for _, in := range instances {
+		mvMat := view.Mul4(in.Model)
+		normalMat := mvMat.Inv().Transpose()
 
-	// Leave the shared matrices as the caller set them.
+		gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
+		gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
+		gl.Uniform3fv(r.state.ambientColLoc, 1, &in.Col[0])
+
+		for _, cs := range css {
+			cs.Render(r.state)
+		}
+	}
+
+	// Leave the shared uniforms as the caller set them.
 	gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &view[0])
 	viewNormal := view.Inv().Transpose()
 	gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &viewNormal[0])

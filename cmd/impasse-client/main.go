@@ -67,6 +67,8 @@ func main() {
 		tiles           = flag.String("tiles", "",
 			"PNG tile atlas, empty for the theme's generated one")
 		themeName = flag.String("theme", "gritty", "look: gritty or matrix")
+		modelName = flag.String("model", "pylon",
+			"player marker: sphere, cube, prism, diamond or pylon")
 	)
 	flag.Parse()
 
@@ -74,6 +76,9 @@ func main() {
 	check(err)
 
 	th, err := themeByName(*themeName)
+	check(err)
+
+	model, err := parseModel(*modelName)
 	check(err)
 
 	run := func() error {
@@ -99,6 +104,7 @@ func main() {
 					(*sessionDuration).Abs(),
 					*tiles,
 					th,
+					model,
 				)
 			})
 		})

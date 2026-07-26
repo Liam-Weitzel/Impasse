@@ -691,3 +691,66 @@ func TestReconnectAfterDisconnect(t *testing.T) {
 		return len(s.Players) == 1
 	})
 }
+
+// Reconnecting inside one match keeps score and position, over the real socket
+// path rather than by calling the world directly. The world tests cover the
+// rule; this covers the wiring between a dropped connection, the account, and
+// the character that comes back.
+func TestRejoinOverTheWireKeepsProgress(t *testing.T) {
+	srv, addr := testServer(t)
+
+	// A real account, since progress is remembered per GitHub id and an
+	// anonymous zero id deliberately never resumes.
+	acc := srv.accounts.forGitHub(GitHubUser{ID: 777, Login: "returning"})
+
+	first := dialBotWithToken(t, addr, srv.accounts.sessionToken(acc))
+	st := first.waitFor("the character", func(s proto.State) bool {
+		return len(s.Players) == 1
+	})
+
+	// Walk somewhere and take the pickup, so there is progress worth losing.
+	target := st.Objectives[0]
+	for i := 0; i < 2; i++ {
+		want := 2 + i
+		first.move("e")
+		first.waitFor("a step east", func(s proto.State) bool {
+			return first.self(s).X == want
+		})
+	}
+	first.move("s")
+	first.waitFor("arrival", func(s proto.State) bool {
+		p := first.self(s)
+		return p.X == target.X && p.Y == target.Y
+	})
+	first.loot()
+	st = first.waitFor("the pickup", func(s proto.State) bool {
+		return first.self(s).Score == 1
+	})
+
+	before := first.self(st)
+
+	// Drop out, as a lost connection or a Ctrl-C would.
+	first.c.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if srv.lobby().Players == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Straight back in, same account.
+	again := dialBotWithToken(t, addr, srv.accounts.sessionToken(acc))
+	st = again.waitFor("the character again", func(s proto.State) bool {
+		return len(s.Players) == 1
+	})
+
+	got := again.self(st)
+	if got.Score != before.Score {
+		t.Errorf("score %d after rejoining, want %d", got.Score, before.Score)
+	}
+	if got.X != before.X || got.Y != before.Y {
+		t.Errorf("came back at (%d,%d), want (%d,%d)",
+			got.X, got.Y, before.X, before.Y)
+	}
+}
