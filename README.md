@@ -22,14 +22,23 @@ export IMPASSE_GITHUB_CLIENT_ID=Ov23li...
 ./bin/impasse-server --map maps/vault.txt
 ```
 
-It listens on port 22, so it needs either root or the capability to bind a low port:
+It listens on port 22, which normally needs privilege. Lower the floor instead of giving
+the process any:
 
 ```sh
-sudo setcap cap_net_bind_service+ep bin/impasse-server
+sudo sysctl -w net.ipv4.ip_unprivileged_port_start=22
 ```
 
-That has to be redone after every rebuild, since it is set on the file. Use `--port` for
+On NixOS put `boot.kernel.sysctl."net.ipv4.ip_unprivileged_port_start" = 22;` in the
+system config to keep it across reboots. The knob covers IPv6 as well. Use `--port` for
 an unprivileged port instead.
+
+Do not use `setcap cap_net_bind_service+ep` on the server. It works for binding, but a
+child of a file-capability binary execs with `AT_SECURE=1`, and glibc then ignores
+`LD_LIBRARY_PATH` when resolving libraries. SDL loads libEGL by `dlopen` and the flake
+supplies it only on that path, so every renderer dies with "Could not initialize OpenGL
+/ GLES library". Running as root avoids that but puts every player's renderer under
+root.
 
 Connect as a human. No SSH key needed:
 

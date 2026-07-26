@@ -86,22 +86,43 @@ type winWatch struct {
 	mu   sync.Mutex
 	fn   func(ssh.Window)
 	last ssh.Window
+
+	// resend asks the reader to hand the current size to a new owner.
+	resend chan struct{}
 }
 
 // newWinWatch starts reading ch. initial is the size from the pty request,
 // which the channel itself never reports.
 func newWinWatch(initial ssh.Window, ch <-chan ssh.Window) *winWatch {
-	w := &winWatch{last: initial}
+	w := &winWatch{last: initial, resend: make(chan struct{}, 1)}
 
+	// Everything is delivered from here, never from the goroutine that calls
+	// watch. An owner is free to block on delivery: bubbletea's Send does
+	// exactly that until its Run loop starts reading.
 	go func() {
-		for win := range ch {
-			w.mu.Lock()
-			w.last = win
-			fn := w.fn
-			w.mu.Unlock()
+		for {
+			select {
+			case win, ok := <-ch:
+				if !ok {
+					return
+				}
+				w.mu.Lock()
+				w.last = win
+				fn := w.fn
+				w.mu.Unlock()
 
-			if fn != nil {
-				fn(win)
+				if fn != nil {
+					fn(win)
+				}
+
+			case <-w.resend:
+				w.mu.Lock()
+				fn, last := w.fn, w.last
+				w.mu.Unlock()
+
+				if fn != nil {
+					fn(last)
+				}
 			}
 		}
 	}()
@@ -109,17 +130,25 @@ func newWinWatch(initial ssh.Window, ch <-chan ssh.Window) *winWatch {
 	return w
 }
 
-// watch makes fn the current owner and hands it the size straight away, so
-// something taking over does not have to wait for the next resize to learn how
-// big the terminal is. A nil fn means nobody is watching.
+// watch makes fn the current owner and arranges for it to be given the size
+// straight away, so something taking over does not have to wait for the next
+// resize to learn how big the terminal is. A nil fn means nobody is watching.
+//
+// Never blocks. The size arrives on the reader goroutine shortly after.
 func (w *winWatch) watch(fn func(ssh.Window)) {
 	w.mu.Lock()
 	w.fn = fn
-	last := w.last
 	w.mu.Unlock()
 
-	if fn != nil {
-		fn(last)
+	if fn == nil {
+		return
+	}
+
+	select {
+	case w.resend <- struct{}{}:
+	default:
+		// One pending resend is enough, it reads the current owner and size
+		// when it runs.
 	}
 }
 
