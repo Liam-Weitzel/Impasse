@@ -45,40 +45,6 @@ func compileShader(shaderType uint32, src string) (uint32, error) {
 	return shader, nil
 }
 
-func CreateComputeProgram(source string) (uint32, error) {
-
-	prog := gl.CreateProgram()
-	if prog == 0 {
-		gl.DeleteProgram(prog)
-		return 0, errors.New("Cannot create compute shader program")
-	}
-
-	cs, err := compileShader(gl.COMPUTE_SHADER, source)
-	if err != nil {
-		gl.DeleteProgram(prog)
-		return 0, fmt.Errorf("compute shader: %v", err)
-	}
-	defer gl.DeleteShader(cs)
-
-	gl.AttachShader(prog, cs)
-
-	gl.LinkProgram(prog)
-
-	var status int32
-	gl.GetProgramiv(prog, gl.LINK_STATUS, &status)
-
-	if status == gl.FALSE {
-		var length int32
-		gl.GetProgramiv(prog, gl.INFO_LOG_LENGTH, &length)
-		log := make([]byte, length+1)
-		gl.GetProgramInfoLog(prog, length, nil, (*uint8)(unsafe.Pointer(&log[0])))
-		gl.DeleteProgram(prog)
-		return 0, fmt.Errorf("linking shader program failed: %v", byteSliceToString(log))
-	}
-
-	return prog, nil
-}
-
 func CreateProgram(vertex, fragment string) (uint32, error) {
 
 	prog := gl.CreateProgram()

@@ -12,7 +12,8 @@ func HSLToRGB(h, s, l float64) (float64, float64, float64) {
 	l /= 100
 
 	if s == 0 {
-		return 1, 1, 1
+		// Achromatic: lightness in all three channels, not always white.
+		return l, l, l
 	}
 
 	var v2 float64

@@ -55,7 +55,11 @@ func (h *handler) sshHandle(s ssh.Session) {
 
 	log.Printf("env: %v\n", env)
 
-	cmd.Env = append(env,
+	// Start from our own environment so the renderer inherits things like
+	// the GL/SDL library paths, then let the session env override it.
+	cmd.Env = append(os.Environ(), env...)
+
+	cmd.Env = append(cmd.Env,
 		fmt.Sprintf("TERM=%s", ptyReq.Term),
 		fmt.Sprintf("SSH3D_CONNECTION=%s", h.server.connection),
 		fmt.Sprintf("SSH3D_ID=%d", h.server.newID()))
@@ -99,6 +103,8 @@ func main() {
 		keyFile    = flag.String("key", "", "path to host key file")
 	)
 
+	flag.Parse()
+
 	cs := newServer(*connection)
 
 	done := make(chan struct{})
@@ -111,8 +117,6 @@ func main() {
 			log.Printf("connection error: %v\n", err)
 		}
 	}()
-
-	flag.Parse()
 
 	h := handler{
 		renderer: *renderer,

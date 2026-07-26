@@ -1,3 +1,6 @@
 /.direnv/
 .claude/
 /bin/
+# Placeholder level data, downloaded separately (see README).
+/quake-x3d-main/
+*.sock

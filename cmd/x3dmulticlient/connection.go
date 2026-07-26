@@ -7,14 +7,20 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
 )
+
+// How long to wait for queued messages when shutting down.
+const flushTimeout = time.Second
 
 type connection struct {
 	con net.Conn
 	out chan string
 	in  chan batch
+	// closed once outgoing() has drained out and returned.
+	flushed chan struct{}
 }
 
 func newConnection(conS string) (*connection, error) {
@@ -35,14 +41,11 @@ func newConnection(conS string) (*connection, error) {
 	}
 
 	return &connection{
-		con: con,
-		out: make(chan string, 5),
-		in:  make(chan batch),
+		con:     con,
+		out:     make(chan string, 5),
+		in:      make(chan batch),
+		flushed: make(chan struct{}),
 	}, nil
-}
-
-func (c *connection) close() error {
-	return c.con.Close()
 }
 
 func (c *connection) run(done chan struct{}) {
@@ -50,18 +53,53 @@ func (c *connection) run(done chan struct{}) {
 	go c.incoming(done)
 }
 
+// stop shuts the connection down and waits for the queued messages to
+// go out, so the final 'leave' reaches the other attendees instead of
+// leaving a ghost behind.
+func (c *connection) stop(done chan struct{}) {
+	close(done)
+	select {
+	case <-c.flushed:
+	case <-time.After(flushTimeout):
+		log.Println("timeout flushing outgoing messages")
+	}
+}
+
 func (c *connection) outgoing(done chan struct{}) {
+	defer close(c.flushed)
 	for {
 		select {
 		case <-done:
+			c.drain()
 			return
 		case msg := <-c.out:
-			if _, err := c.con.Write([]byte(msg)); err != nil {
-				log.Printf("outgoing error: %v\n", err)
+			if !c.write(msg) {
 				return
 			}
 		}
 	}
+}
+
+// drain writes whatever is still queued without blocking.
+func (c *connection) drain() {
+	for {
+		select {
+		case msg := <-c.out:
+			if !c.write(msg) {
+				return
+			}
+		default:
+			return
+		}
+	}
+}
+
+func (c *connection) write(msg string) bool {
+	if _, err := c.con.Write([]byte(msg)); err != nil {
+		log.Printf("outgoing error: %v\n", err)
+		return false
+	}
+	return true
 }
 
 func (c *connection) incoming(done chan struct{}) {
@@ -74,7 +112,6 @@ func (c *connection) incoming(done chan struct{}) {
 		defer close(raw)
 		sc := bufio.NewScanner(c.con)
 		for sc.Scan() {
-			//log.Println("raw:", sc.Text())
 			raw <- sc.Text()
 		}
 	}()

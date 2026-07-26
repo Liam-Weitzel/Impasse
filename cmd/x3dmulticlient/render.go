@@ -13,6 +13,10 @@ import (
 const (
 	maxWidth  = 1360
 	maxHeight = 768
+
+	// How far away level geometry is still drawn. Attendees use the
+	// shorter 'far' distance.
+	shapeRange = 1500
 )
 
 func fit(w, h int) bool {
@@ -89,20 +93,15 @@ func (c *client) render() {
 	t0 := time.Now()
 	center := c.camera.Position
 	center[1] = -center[1]
-	//fb := bs.Rotate(camera.Rotation(), center)
 	bs := x3d.BoundingSphere{
-		Radius: 1500 * 1500,
-		Center: center,
+		RadiusSqr: shapeRange * shapeRange,
+		Center:    center,
 	}
 	for _, cs := range c.shapes {
 		if bs.IntersectsSqr(cs.Bounds) {
 			c.visibleShapes = append(c.visibleShapes, cs)
 		}
 	}
-	/*
-		log.Printf("total: %d vis: %d radius: %f pos: %v\n",
-			len(css), len(vis), fb.Radius, camera.Position)
-	*/
 	c.renderer.RenderShapes(c.camera, c.visibleShapes)
 
 	if len(c.attendees) > 0 {
@@ -136,5 +135,5 @@ func (c *client) render() {
 	c.screen.Show()
 	t3 := time.Now()
 	c.renderDuration = t1.Sub(t0)
-	c.termDuration = t3.Sub(t1)
+	c.termDuration = t3.Sub(t2)
 }

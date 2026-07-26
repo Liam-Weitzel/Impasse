@@ -100,8 +100,8 @@ func startClient(
 		return err
 	}
 	conDone := make(chan struct{})
-	defer close(conDone)
 	con.run(conDone)
+	defer con.stop(conDone)
 
 	c := &client{
 		scene:           scene,
@@ -115,9 +115,6 @@ func startClient(
 		idleDuration:    idleDuration,
 		sessionDuration: sessionDuration,
 	}
-
-	//log.Printf("connection: %s\n", connection)
-	//log.Printf("user ID: %d\n", userID)
 
 	if err := c.setupOpenGL(); err != nil {
 		return err
@@ -155,7 +152,10 @@ func (c *client) drawHUD() {
 
 	totalTime := c.renderDuration + c.conversionDuration + c.termDuration
 
-	fps := 1 / totalTime.Seconds()
+	var fps float64
+	if totalTime > 0 {
+		fps = 1 / totalTime.Seconds()
+	}
 
 	gfx.WriteString(c.screen, 0, height-1,
 		fmt.Sprintf("3D: %5.2fms|Unicode: %5.2fms|Update: %5.2fms|FPS: %.2f",
@@ -203,7 +203,7 @@ func (c *client) run() error {
 	defer c.textureCache.Delete()
 
 	if err := c.compileShapes(); err != nil {
-		return nil
+		return err
 	}
 
 	c.rnd = rand.New(rand.NewSource(time.Now().Unix()))
@@ -214,7 +214,6 @@ func (c *client) run() error {
 	c.color = mgl32.Vec3{float32(r) / 255, float32(g) / 255, float32(b) / 255}
 
 	p := vp.Position
-	//p[0], p[2] = p[2], p[0]
 	p[1] = -p[1]
 
 	angle := vp.Orientation[3]
@@ -226,7 +225,7 @@ func (c *client) run() error {
 	}
 
 	c.camera = &opengl.Camera{
-		Position: p, // c.scene.Viewpoints[0].Position,
+		Position: p,
 		Angle:    angle,
 	}
 
@@ -268,20 +267,24 @@ func (c *client) run() error {
 				c.quit = true
 			}
 		case k, ok := <-keys:
+			// A plain break would only leave the select and spin
+			// forever on the closed channel.
 			if !ok {
+				c.quit = true
 				break
 			}
 			k.run(c)
 
 		case m, ok := <-c.connection.in:
 			if !ok {
+				c.quit = true
 				break
 			}
 			m.run(c)
 		}
 	}
 
-	// TODO: This should block.
+	// Queued here, flushed by connection.stop() once we return.
 	c.connection.sendLeave(c.userID)
 
 	return nil
@@ -289,7 +292,6 @@ func (c *client) run() error {
 
 func (c *client) moveAttendee(id uint64, x, y, z float32) {
 
-	// log.Printf("move %d -> [%.2f, %.2f, %.2f]\n", id, x, y, z)
 	att := c.attendees[id]
 	if att == nil {
 		return
@@ -302,13 +304,6 @@ func (c *client) moveAttendee(id uint64, x, y, z float32) {
 }
 
 func (c *client) helloAttendee(id uint64, x, y, z float32, r, g, b byte) {
-
-	/*
-		log.Printf("hello %d -> [%.2f, %.2f, %.2f] (%02x, %02x, %02x)\n",
-			id,
-			x, y, z,
-			r, g, b)
-	*/
 
 	// Don't register if we already know this one.
 	if c.attendees[id] != nil {

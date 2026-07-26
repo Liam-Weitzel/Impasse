@@ -15,14 +15,11 @@ import (
 
 type Texture struct {
 	refCount int32
-	Width    int32
-	Height   int32
 	Texture  uint32
 }
 
 func (t *Texture) free() {
-	//gl.BindTexture(gl.TEXTURE_2D, 0)
-	gl.DeleteBuffers(1, &t.Texture)
+	gl.DeleteTextures(1, &t.Texture)
 }
 
 func (t *Texture) Free() {
@@ -89,10 +86,6 @@ func yFlip(img *image.RGBA) {
 	}
 }
 
-func (tc *TextureCache) NumTextures() int {
-	return len(tc.textures)
-}
-
 func (tc *TextureCache) GetTexture(name string) (*Texture, error) {
 	t := tc.textures[name]
 
@@ -113,8 +106,6 @@ func (tc *TextureCache) GetTexture(name string) (*Texture, error) {
 		t = &Texture{
 			refCount: 1,
 			Texture:  texture,
-			Width:    int32(rgba.Bounds().Dx()),
-			Height:   int32(rgba.Bounds().Dy()),
 		}
 
 		tc.textures[name] = t
@@ -154,7 +145,7 @@ func makeTexture(img *image.RGBA) (uint32, error) {
 	gl.GenerateMipmap(gl.TEXTURE_2D)
 
 	if errNo := gl.GetError(); errNo != gl.NO_ERROR {
-		gl.DeleteBuffers(1, &texture)
+		gl.DeleteTextures(1, &texture)
 		return 0, fmt.Errorf("creating texture failed: %d", errNo)
 	}
 

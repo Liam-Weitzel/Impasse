@@ -48,6 +48,9 @@
           shellHook = ''
             export LIBGL_DRIVERS_PATH="${pkgs.mesa}/lib/dri"
             export __EGL_VENDOR_LIBRARY_FILENAMES="${pkgs.mesa}/share/glvnd/egl_vendor.d/50_mesa.json"
+            # SDL2 dlopen()s libEGL/libGLESv2 by soname, so they are not in its
+            # RUNPATH and have to be findable at run time.
+            export LD_LIBRARY_PATH="${pkgs.libGL}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           '';
         };
       });
