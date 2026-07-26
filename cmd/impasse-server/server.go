@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/sascha.l.teichmann/ssh3d/grid"
-	"gitlab.com/sascha.l.teichmann/ssh3d/proto"
+	"github.com/Liam-Weitzel/Impasse/grid"
+	"github.com/Liam-Weitzel/Impasse/proto"
 )
 
 // outgoing is the send queue depth per client. A client that falls this far
@@ -139,7 +139,7 @@ func (s *server) closeCon(nc net.Conn) {
 
 func (s *server) newConnection(nc net.Conn) {
 	s.cmds <- func(s *server) {
-		p := s.world.spawn()
+		p := s.world.join()
 
 		c := &conn{
 			net: nc,

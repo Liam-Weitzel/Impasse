@@ -1,4 +1,4 @@
-package opengl
+package render
 
 import (
 	"bytes"

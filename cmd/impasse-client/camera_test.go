@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
+	"github.com/Liam-Weitzel/Impasse/grid"
 	"github.com/go-gl/mathgl/mgl32"
-	"gitlab.com/sascha.l.teichmann/ssh3d/grid"
 )
 
 // project runs a world point all the way to terminal coordinates, using the

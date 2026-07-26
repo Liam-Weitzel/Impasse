@@ -1,4 +1,4 @@
-module gitlab.com/sascha.l.teichmann/ssh3d
+module github.com/Liam-Weitzel/Impasse
 
 go 1.25.0
 

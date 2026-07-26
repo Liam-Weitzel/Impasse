@@ -1,4 +1,4 @@
-package opengl
+package render
 
 import (
 	"math"
@@ -87,12 +87,6 @@ func (sp *Sphere) buildVerticesSmooth() ([]Vertex, []uint16) {
 		ns[2] = z
 	}
 
-	addTexCoord := func(index int, s, t float32) {
-		tc := vertices[index].texCoord[:]
-		tc[0] = s
-		tc[1] = t
-	}
-
 	addIndices := func(index int, i1, i2, i3 int) {
 		ids := indices[index : index+3]
 		ids[0] = uint16(i1)
@@ -104,7 +98,7 @@ func (sp *Sphere) buildVerticesSmooth() ([]Vertex, []uint16) {
 	sectorStep := 2 * math.Pi / float32(sp.sectors)
 	stackStep := math.Pi / float32(sp.stacks)
 
-	var ii, jj int
+	var ii int
 
 	for i := 0; i <= sp.stacks; i++ {
 		stackAngle := math.Pi/2 - float32(i)*stackStep
@@ -126,14 +120,7 @@ func (sp *Sphere) buildVerticesSmooth() ([]Vertex, []uint16) {
 			nz := z * lengthInv
 			addNormal(ii, nx, ny, nz)
 
-			// vertex tex coord between [0, 1]
-			s := float32(j) / float32(sp.sectors)
-			t := float32(i) / float32(sp.stacks)
-			addTexCoord(jj, s, t)
-
-			// next
 			ii++
-			jj++
 		}
 	}
 

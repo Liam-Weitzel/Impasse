@@ -207,12 +207,8 @@ func TestLinesRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSpawns(t *testing.T) {
-	g := mustParse(t, "###\n#.#\n#.#")
-
-	got := g.Spawns()
-	want := []Pos{{1, 1}, {1, 2}}
-
+func samePositions(t *testing.T, got, want []Pos) {
+	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -220,5 +216,60 @@ func TestSpawns(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %v, want %v", got, want)
 		}
+	}
+}
+
+func TestWalkables(t *testing.T) {
+	g := mustParse(t, "###\n#.#\n#.#")
+	samePositions(t, g.Walkables(), []Pos{{1, 1}, {1, 2}})
+}
+
+func TestReachableStopsAtWalls(t *testing.T) {
+	// Two rooms with no way between them.
+	g := mustParse(t, ""+
+		"#####\n"+
+		"#.#.#\n"+
+		"#.#.#\n"+
+		"#####")
+
+	samePositions(t, g.Reachable(Pos{1, 1}), []Pos{{1, 1}, {1, 2}})
+}
+
+func TestReachableFromWallIsEmpty(t *testing.T) {
+	g := mustParse(t, "###\n#.#\n###")
+	if got := g.Reachable(Pos{0, 0}); got != nil {
+		t.Fatalf("got %v, want nil", got)
+	}
+}
+
+// A diagonal gap is closed, because moving through it would cut a corner. The
+// two halves here touch only at a corner and must not be reachable.
+func TestReachableRefusesCornerGap(t *testing.T) {
+	g := mustParse(t, ""+
+		"####\n"+
+		"#.##\n"+
+		"##.#\n"+
+		"####")
+
+	samePositions(t, g.Reachable(Pos{1, 1}), []Pos{{1, 1}})
+}
+
+func TestLargestRegionPicksTheBiggest(t *testing.T) {
+	// Left pocket has one cell, right room has four.
+	g := mustParse(t, ""+
+		"######\n"+
+		"#.#..#\n"+
+		"###..#\n"+
+		"######")
+
+	samePositions(t, g.LargestRegion(),
+		[]Pos{{3, 1}, {4, 1}, {3, 2}, {4, 2}})
+}
+
+func TestLargestRegionIsEveryCellWhenConnected(t *testing.T) {
+	g := mustParse(t, "####\n#..#\n#..#\n####")
+
+	if got, want := len(g.LargestRegion()), len(g.Walkables()); got != want {
+		t.Fatalf("region has %d cells, want all %d", got, want)
 	}
 }

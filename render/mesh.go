@@ -1,11 +1,10 @@
-package opengl
+package render
 
 import (
 	"math"
 
 	gl "github.com/go-gl/gl/v3.1/gles2"
 	"github.com/go-gl/mathgl/mgl32"
-	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
 )
 
 // Indices are uint16 and MaxUint16 is the primitive restart marker, so a single
@@ -18,8 +17,8 @@ const (
 )
 
 // MeshBuilder turns quads into CompiledShapes. Quads are drawn as four vertex
-// triangle fans separated by the restart marker, which is what CompiledShape
-// already does for X3D faces, so nothing downstream needs to change.
+// triangle fans separated by the restart marker, so one draw call covers a
+// whole shape.
 //
 // Vertices carry no texture coordinates. Shapes built here are drawn untextured
 // and take their colour from the diffuse and ambient uniforms.
@@ -28,24 +27,12 @@ type MeshBuilder struct {
 
 	vertices []Vertex
 	indices  []uint16
-	bounds   x3d.AABB
 
 	shapes []*CompiledShape
 }
 
-func emptyAABB() x3d.AABB {
-	const big = math.MaxFloat32
-	return x3d.AABB{
-		Min: mgl32.Vec3{big, big, big},
-		Max: mgl32.Vec3{-big, -big, -big},
-	}
-}
-
 func NewMeshBuilder(color mgl32.Vec3) *MeshBuilder {
-	return &MeshBuilder{
-		color:  color,
-		bounds: emptyAABB(),
-	}
+	return &MeshBuilder{color: color}
 }
 
 // AddQuad appends one quad. The corners must be given in order around the face,
@@ -64,7 +51,6 @@ func (mb *MeshBuilder) AddQuad(a, b, c, d, normal mgl32.Vec3) error {
 			coord:  corner,
 			normal: normal,
 		})
-		mb.bounds.Extend(corner)
 	}
 
 	mb.indices = append(mb.indices,
@@ -111,12 +97,9 @@ func (mb *MeshBuilder) flush() error {
 		return err
 	}
 
-	bounds := mb.bounds
-
 	mb.shapes = append(mb.shapes, &CompiledShape{
-		Bounds: &bounds,
-		vbo:    vbo,
-		ibo:    ibo,
+		vbo: vbo,
+		ibo: ibo,
 		// Quads are wound counter clockwise seen from the front, but the
 		// projection mirrors clip space, so on screen they come out
 		// clockwise. cullCCW(true) selects gl.CW.
@@ -127,7 +110,6 @@ func (mb *MeshBuilder) flush() error {
 
 	mb.vertices = mb.vertices[:0]
 	mb.indices = mb.indices[:0]
-	mb.bounds = emptyAABB()
 
 	return nil
 }

@@ -8,8 +8,8 @@ import (
 	"net"
 	"strings"
 
-	"gitlab.com/sascha.l.teichmann/ssh3d/grid"
-	"gitlab.com/sascha.l.teichmann/ssh3d/proto"
+	"github.com/Liam-Weitzel/Impasse/grid"
+	"github.com/Liam-Weitzel/Impasse/proto"
 )
 
 // connection talks to the server. Incoming states arrive on states, outgoing

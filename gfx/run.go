@@ -47,7 +47,7 @@ func WrapWindow(fn func(*sdl.Window) error) error {
 	var err error
 
 	if window, err = sdl.CreateWindow(
-		"SSH3D",
+		"Impasse",
 		sdl.WINDOWPOS_UNDEFINED,
 		sdl.WINDOWPOS_UNDEFINED,
 		displayWidth, displayHeight,

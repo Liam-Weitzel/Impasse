@@ -7,9 +7,9 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/Liam-Weitzel/Impasse/gfx"
 	"github.com/gdamore/tcell/v2"
 	"github.com/veandco/go-sdl2/sdl"
-	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
 )
 
 func check(err error) {
@@ -48,9 +48,9 @@ func logWrap(fname string, fn func() error) (err error) {
 }
 
 func connectionParam() (string, error) {
-	connection, ok := os.LookupEnv("SSH3D_CONNECTION")
+	connection, ok := os.LookupEnv("IMPASSE_CONNECTION")
 	if !ok {
-		return "", errors.New("'SSH3D_CONNECTION' is missing")
+		return "", errors.New("'IMPASSE_CONNECTION' is missing")
 	}
 	return connection, nil
 }

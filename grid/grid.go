@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 )
 
 // Cell is what occupies one square of the world.
@@ -16,11 +17,14 @@ type Cell byte
 const (
 	Wall  Cell = '#'
 	Floor Cell = '.'
+	// Spawn is floor that also marks where players enter the world. A map
+	// may hold at most one.
+	Spawn Cell = 'S'
 )
 
 // Walkable reports whether a player may stand on this cell.
 func (c Cell) Walkable() bool {
-	return c == Floor
+	return c == Floor || c == Spawn
 }
 
 // Grid is the world. Origin is the top left, x runs east, y runs south.
@@ -28,6 +32,14 @@ type Grid struct {
 	width  int
 	height int
 	cells  []Cell
+
+	spawn    Pos
+	hasSpawn bool
+}
+
+// Spawn returns the cell marked S, and whether the map had one.
+func (g *Grid) Spawn() (Pos, bool) {
+	return g.spawn, g.hasSpawn
 }
 
 // Pos is a cell coordinate.
@@ -84,6 +96,12 @@ var deltas = [...]Pos{
 	SouthWest: {-1, 1},
 	West:      {-1, 0},
 	NorthWest: {-1, -1},
+}
+
+// Directions lists the eight movement directions, excluding None.
+var Directions = [...]Direction{
+	North, NorthEast, East, SouthEast,
+	South, SouthWest, West, NorthWest,
 }
 
 // keys maps the human movement keys to directions. The letters form a 3x3 block
@@ -168,11 +186,14 @@ func (g *Grid) Move(from Pos, d Direction) (Pos, bool) {
 	return to, true
 }
 
-// Parse reads an ASCII map. Every line is a row, '#' is wall and '.' is floor.
-// Short rows are padded with wall so ragged files still load. Blank leading and
-// trailing lines are ignored.
+// Parse reads an ASCII map. Every line is a row, '#' is wall, '.' is floor and
+// 'S' is the spawn point. Short rows are padded with wall so ragged files still
+// load. Blank leading and trailing lines are ignored.
 func Parse(r io.Reader) (*Grid, error) {
 	var rows [][]Cell
+
+	spawn := Pos{}
+	hasSpawn := false
 
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -185,6 +206,15 @@ func Parse(r io.Reader) (*Grid, error) {
 		row := make([]Cell, len(line))
 		for i, r := range line {
 			switch Cell(r) {
+			case Spawn:
+				if hasSpawn {
+					return nil, fmt.Errorf(
+						"map has more than one spawn point, second at row %d column %d",
+						len(rows)+1, i+1)
+				}
+				spawn = Pos{X: i, Y: len(rows)}
+				hasSpawn = true
+				row[i] = Spawn
 			case Wall, Floor:
 				row[i] = Cell(r)
 			default:
@@ -214,9 +244,11 @@ func Parse(r io.Reader) (*Grid, error) {
 	}
 
 	g := &Grid{
-		width:  width,
-		height: len(rows),
-		cells:  make([]Cell, width*len(rows)),
+		width:    width,
+		height:   len(rows),
+		cells:    make([]Cell, width*len(rows)),
+		spawn:    spawn,
+		hasSpawn: hasSpawn,
 	}
 	for y, row := range rows {
 		for x := range g.cells[y*width : (y+1)*width] {
@@ -245,9 +277,9 @@ func (g *Grid) Lines() []string {
 	return out
 }
 
-// Spawns lists every walkable cell, in reading order. Used to place players
-// until objectives exist and dictate spawn placement.
-func (g *Grid) Spawns() []Pos {
+// Walkables lists every walkable cell, in reading order, whether or not a
+// player could ever get to it.
+func (g *Grid) Walkables() []Pos {
 	var out []Pos
 	for y := 0; y < g.height; y++ {
 		for x := 0; x < g.width; x++ {
@@ -257,5 +289,69 @@ func (g *Grid) Spawns() []Pos {
 			}
 		}
 	}
+	return out
+}
+
+// Reachable returns every cell reachable from start, in reading order, using
+// the real movement rules. Corner cutting is refused, so a diagonal gap counts
+// as closed here exactly as it does in play.
+func (g *Grid) Reachable(start Pos) []Pos {
+	if !g.Walkable(start) {
+		return nil
+	}
+
+	seen := map[Pos]bool{start: true}
+	queue := []Pos{start}
+
+	for len(queue) > 0 {
+		p := queue[0]
+		queue = queue[1:]
+
+		for _, d := range Directions {
+			to, ok := g.Move(p, d)
+			if !ok || seen[to] {
+				continue
+			}
+			seen[to] = true
+			queue = append(queue, to)
+		}
+	}
+
+	return inReadingOrder(seen)
+}
+
+// LargestRegion returns the biggest group of mutually reachable cells. A map
+// with sealed off pockets would otherwise strand any player spawned in one.
+func (g *Grid) LargestRegion() []Pos {
+	seen := map[Pos]bool{}
+	var best []Pos
+
+	for _, p := range g.Walkables() {
+		if seen[p] {
+			continue
+		}
+		region := g.Reachable(p)
+		for _, q := range region {
+			seen[q] = true
+		}
+		if len(region) > len(best) {
+			best = region
+		}
+	}
+
+	return best
+}
+
+func inReadingOrder(set map[Pos]bool) []Pos {
+	out := make([]Pos, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Y != out[j].Y {
+			return out[i].Y < out[j].Y
+		}
+		return out[i].X < out[j].X
+	})
 	return out
 }

@@ -1,7 +1,7 @@
 # Impasse
 
 A competitive, tick-based maze game played over SSH and over a bot API. The world is
-rendered in real-time 3D from a 45 degree top-down angle straight into the terminal.
+rendered in real-time 3D from a top-down angle straight into the terminal.
 Players need no client install and no GPU. The server renders and ships Unicode.
 
 This file is the technical reference and the progress log. The design document is kept
@@ -17,13 +17,13 @@ see [LICENSE](./LICENSE).
 ### Process model
 
 ```
-ssh client ──ssh──> ssh3dmulti ──pty──> x3dmulticlient (one per session)
+ssh client ──ssh──> impasse-server ──pty──> impasse-client (one per session)
                          │                     │
                     world state          unix socket
                          └─────────────────────┘
 ```
 
-`ssh3dmulti` is the SSH server. For every session it accepts it spawns a separate
+`impasse-server` is the SSH server. For every session it accepts it spawns a separate
 renderer process on a pty and pipes the two together, so the renderer writes escape
 sequences straight to the player's terminal. Renderers talk back to the server over a
 unix socket.
@@ -41,11 +41,12 @@ almost never enable. The nix flake builds one from source.
 
 | Path | Role |
 | --- | --- |
-| `cmd/ssh3dmulti` | SSH server, session handling, world state |
-| `cmd/x3dmulticlient` | Renderer and client, one process per session |
+| `cmd/impasse-server` | SSH server, session handling, world state |
+| `cmd/impasse-client` | Renderer and client, one process per session |
+| `grid` | The world model. Map parsing, walkability, movement rules |
+| `proto` | Wire format shared by the server and every client |
 | `gfx` | Terminal output. Pixels to Unicode blocks, colour, screen setup |
-| `x3d/opengl` | GL layer. Shaders, meshes, textures, framebuffer, camera |
-| `x3d` | Scene data and bounding volumes. X3D loading is being retired |
+| `render` | GL layer. Shaders, meshes, framebuffer |
 
 ### World model
 
@@ -76,11 +77,24 @@ other way and asks for an action on the next tick.
 One protocol, two listeners. Unix socket for SSH renderers now, TCP for bots later.
 That makes milestone 4 a listener rather than a second protocol.
 
-### Still inherited from ssh3d
+### Rendering
 
-The X3D loader (`x3d/parser.go`, `x3d/scene.go`) and the first person path in
-`Renderer.RenderShapes` are left over from the demo and are no longer used by the
-client. They go when milestone 1 closes. The GL layer beneath them stays.
+`glReadPixels` returns rows starting at the bottom left, while `image.RGBA` row 0 is the
+top. The projection mirrors clip space vertically to cancel that out. Without it the
+picture reaches the terminal upside down. Because the mirror reverses triangle
+orientation on screen, **front faces are clockwise**.
+
+Nothing culls. The mesh is split by vertex count to stay under the `uint16` index
+limit, not by region, so a bounding box per chunk would not help. Culling needs
+spatial chunking first.
+
+### Textures
+
+There are none yet, and the MVP needs them. Surfaces currently take a flat colour from
+the ambient and diffuse uniforms. When textures return they will be keyed to the grid
+and a tileset rather than to per shape material data, so the vertex format gains back a
+texture coordinate and the fragment shader gains a sampler. Nothing from the old X3D
+texture cache was worth keeping, which is why it went.
 
 ### Scale and units
 
@@ -90,7 +104,7 @@ client. They go when milestone 1 closes. The GL layer beneath them stays.
 principle, but the fragment shader carries Quake-scaled constants such as
 `fogFar = 1500` and the light attenuation radius. At 64 units fog lands around 23 cells
 out, which is a sensible fade for a clamped top-down view. If you change the cell size,
-retune `x3d/opengl/texture.frag` with it.
+retune `render/shape.frag` with it.
 
 `updateProjection` halves the vertical FOV to compensate for terminal cells being
 roughly twice as tall as they are wide.
@@ -101,8 +115,8 @@ The nix flake provides Go, an SDL2 with `offscreen` enabled, and the GL runtime 
 
 ```sh
 nix develop
-go build -o bin/ssh3dmulti ./cmd/ssh3dmulti
-go build -o bin/x3dmulticlient ./cmd/x3dmulticlient
+go build -o bin/impasse-server ./cmd/impasse-server
+go build -o bin/impasse-client ./cmd/impasse-client
 ```
 
 Without nix you need an SDL2 built with `--enable-video-offscreen=yes` and
@@ -113,11 +127,23 @@ reason.
 Run the server:
 
 ```sh
-./bin/ssh3dmulti --renderer ./bin/x3dmulticlient --map maps/test.txt
+./bin/impasse-server --renderer ./bin/impasse-client --map maps/open.txt
 ```
 
-Maps are plain ASCII, `#` for wall and `.` for floor. Edit `maps/test.txt` in any text
-editor, restart the server, and the new geometry is there.
+Maps are plain ASCII. `#` is wall, `.` is floor and `S` is the spawn point. Edit one in
+any text editor, restart the server, and the new geometry is there.
+
+Every player enters on the `S`, so the start of a round is a scramble out of the same
+door. A map may hold at most one, and two is an error. A map with no `S` still loads,
+falling back to the first cell of the largest region, and the server says so.
+
+`maps/open.txt` is the one to use for movement testing. It is wide open in places so
+diagonals have room to work, and it has single cell gaps and blocks meeting at corners
+where the corner rule refuses them. `maps/test.txt` is a tight maze where diagonals
+almost never apply.
+
+The server warns at startup about cells that cannot be reached from the spawn, since
+that usually means a sealed off pocket rather than a deliberate choice.
 
 Connect:
 
@@ -189,14 +215,20 @@ Milestone 1, the loop:
 * Server owns the world. 600ms tick, queued actions resolved simultaneously.
 * NDJSON protocol replaced the old `h`/`p`/`l` relay format.
 * Client is a view. Sends intent, interpolates between ticks, redraws at 15fps.
-* 45 degree follow-cam. Yaw clamped to plus or minus 30 degrees, clamped zoom.
+* Top-down follow-cam. Pitch 65 adjustable 35 to 85, yaw clamped to plus or minus 30
+  degrees, clamped zoom.
+* Fixed two orientation bugs. World Y ran south, which mirrored east and west. Frames
+  reached the terminal upside down because of the `glReadPixels` row order.
+* Retired the X3D loader, the first person camera and render path, the texture cache
+  and the scene parser. About 1500 lines. `deadcode ./cmd/...` is clean.
+* Renamed everything that still said ssh3d or x3d. Module is now
+  `github.com/Liam-Weitzel/Impasse`, binaries are `impasse-server` and
+  `impasse-client`, the GL package is `render`, and the env var is
+  `IMPASSE_CONNECTION`.
+* Added `S` to the map format for the spawn point. All players start there.
+* `maps/open.txt`, a wide map for exercising 8 way movement.
 
 ### Next
-
-Finish milestone 1:
-
-* Retire `x3d/parser.go`, `x3d/scene.go` and the first person render path.
-* Look at the map on screen and tune cell size, wall height, colours and zoom limits.
 
 Milestone 2, objectives. 4-tick loot channel and the in-world nearest-objective arrow,
 pointed by straight-line bearing.
@@ -210,9 +242,11 @@ Milestone 5, identity. SSH public key as account, one active session per key.
 
 ### Known issues
 
-`x3d/opengl/shapes.go` uses `uint16` vertex indices with `MaxUint16` as the
-primitive-restart marker. Any shape above 65535 unique vertices silently wraps and
-corrupts geometry. The generated grid mesh needs chunking, or 32-bit indices.
+Nothing automated covers the socket path. `world_test.go` drives the simulation
+directly, so the welcome handshake, the JSON encoding and disconnect cleanup are only
+verified by hand. Worth an end to end test that spins the server on a temp socket and
+drives it with a real client, probably alongside milestone 4 when the same protocol
+gets a TCP listener.
 
 The `geoms` flag threaded through `gfx.BlitRunes` into `NewRuneConverter` selects nine
 extra geometric block glyphs. Nothing passes `true` any more, since the only caller

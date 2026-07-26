@@ -1,9 +1,9 @@
 package main
 
 import (
+	"github.com/Liam-Weitzel/Impasse/grid"
+	"github.com/Liam-Weitzel/Impasse/render"
 	"github.com/go-gl/mathgl/mgl32"
-	"gitlab.com/sascha.l.teichmann/ssh3d/grid"
-	"gitlab.com/sascha.l.teichmann/ssh3d/x3d/opengl"
 )
 
 // World units. X runs east, Y runs north, Z is up. The floor sits at z=0.
@@ -40,10 +40,10 @@ func cellCenter(p grid.Pos) mgl32.Vec3 {
 //
 // Quads are wound counter clockwise seen from the front, which is what the
 // renderer culls against.
-func buildGridMesh(g *grid.Grid) ([]*opengl.CompiledShape, error) {
+func buildGridMesh(g *grid.Grid) ([]*render.CompiledShape, error) {
 
-	floors := opengl.NewMeshBuilder(floorColor)
-	walls := opengl.NewMeshBuilder(wallColor)
+	floors := render.NewMeshBuilder(floorColor)
+	walls := render.NewMeshBuilder(wallColor)
 
 	const h = wallHeight
 

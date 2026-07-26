@@ -59,7 +59,7 @@ func (h *handler) sshHandle(s ssh.Session) {
 	// arrives in the welcome message, so it is not passed here.
 	cmd.Env = append(cmd.Env,
 		fmt.Sprintf("TERM=%s", ptyReq.Term),
-		fmt.Sprintf("SSH3D_CONNECTION=%s", h.server.connection))
+		fmt.Sprintf("IMPASSE_CONNECTION=%s", h.server.connection))
 
 	f, err := pty.Start(cmd)
 	if err != nil {
@@ -90,13 +90,13 @@ func main() {
 	if err != nil {
 		dir = "."
 	}
-	con := filepath.Join(dir, "ssh3d.sock")
+	con := filepath.Join(dir, "impasse.sock")
 
 	var (
 		port       = flag.Int("port", 2222, "ssh server port")
 		connection = flag.String("connection", "unix:"+con, "common connection")
 		maxCons    = flag.Int("maxcons", 0, "max number of connections")
-		renderer   = flag.String("renderer", "x3dmulticlient", "path to renderer")
+		renderer   = flag.String("renderer", "impasse-client", "path to renderer")
 		mapFile    = flag.String("map", "maps/test.txt", "path to the ASCII map")
 		keyFile    = flag.String("key", "", "path to host key file")
 	)
@@ -107,8 +107,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("loading map: %v\n", err)
 	}
-	log.Printf("map %s loaded: %dx%d, %d walkable cells\n",
-		*mapFile, w.g.Width(), w.g.Height(), len(w.spawns))
+	log.Printf("map %s loaded: %dx%d, %d walkable cells, spawn at %v\n",
+		*mapFile, w.g.Width(), w.g.Height(), w.walkable, w.spawn)
+	if !w.hasMarker {
+		log.Printf("warning: map has no 'S' spawn marker, falling back to %v\n",
+			w.spawn)
+	}
+	if sealed := w.walkable - w.reachable; sealed > 0 {
+		log.Printf("warning: %d cells cannot be reached from the spawn\n", sealed)
+	}
 
 	cs := newServer(*connection, w)
 

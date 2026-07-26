@@ -7,14 +7,14 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/Liam-Weitzel/Impasse/gfx"
+	"github.com/Liam-Weitzel/Impasse/grid"
+	"github.com/Liam-Weitzel/Impasse/proto"
+	"github.com/Liam-Weitzel/Impasse/render"
 	"github.com/gdamore/tcell/v2"
 	gl "github.com/go-gl/gl/v3.1/gles2"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/veandco/go-sdl2/sdl"
-	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
-	"gitlab.com/sascha.l.teichmann/ssh3d/grid"
-	"gitlab.com/sascha.l.teichmann/ssh3d/proto"
-	"gitlab.com/sascha.l.teichmann/ssh3d/x3d/opengl"
 )
 
 const (
@@ -46,7 +46,7 @@ type client struct {
 	userID uint64
 
 	g      *grid.Grid
-	shapes []*opengl.CompiledShape
+	shapes []*render.CompiledShape
 
 	window  *sdl.Window
 	context sdl.GLContext
@@ -54,15 +54,15 @@ type client struct {
 
 	fov      float32
 	camera   *camera
-	renderer *opengl.Renderer
-	sphere   *opengl.Sphere
+	renderer *render.Renderer
+	sphere   *render.Sphere
 
 	fbo           uint32
 	freeFBO       func()
 	renderedImage *image.RGBA
 
 	attendees map[uint64]*attendee
-	spheres   []opengl.SpherePostion
+	spheres   []render.SpherePosition
 
 	tickDuration time.Duration
 	tickAt       time.Time
@@ -129,7 +129,7 @@ func (c *client) tearDownOpenGL() {
 
 func (c *client) allocFrameBuffer(w, h int) error {
 	var err error
-	if c.fbo, c.freeFBO, err = opengl.CreateFrameBuffer(
+	if c.fbo, c.freeFBO, err = render.CreateFrameBuffer(
 		int32(w), int32(h)); err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func (c *client) run() error {
 	ambientCol := mgl32.Vec3{0.75, 0.75, 0.75}
 
 	var err error
-	if c.renderer, err = opengl.NewRenderer(ambientCol); err != nil {
+	if c.renderer, err = render.NewRenderer(ambientCol); err != nil {
 		return err
 	}
 	defer c.renderer.Delete()
@@ -162,7 +162,7 @@ func (c *client) run() error {
 
 	c.updateProjection(aspect)
 
-	if c.sphere, err = opengl.NewSphere(playerRadius, 12, 12, false); err != nil {
+	if c.sphere, err = render.NewSphere(playerRadius, 12, 12, false); err != nil {
 		return err
 	}
 	defer c.sphere.Delete()
@@ -383,7 +383,7 @@ func (c *client) render() {
 		if id == c.userID {
 			col = col.Mul(1.4)
 		}
-		c.spheres = append(c.spheres, opengl.SpherePostion{Pos: pos, Col: col})
+		c.spheres = append(c.spheres, render.SpherePosition{Pos: pos, Col: col})
 	}
 	if len(c.spheres) > 0 {
 		c.renderer.RenderSpheresMesh(view, c.sphere, c.spheres)
@@ -402,11 +402,6 @@ func (c *client) render() {
 	c.renderDuration = t1.Sub(t0)
 	c.conversionDuration = t2.Sub(t1)
 	c.termDuration = t3.Sub(t2)
-}
-
-func (c *client) updateProjectionScreen() {
-	bounds := c.renderedImage.Bounds()
-	c.updateProjection(float32(bounds.Dx()) / float32(bounds.Dy()))
 }
 
 func (c *client) updateProjection(aspect float32) {

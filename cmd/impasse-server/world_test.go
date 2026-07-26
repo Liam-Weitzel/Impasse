@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gitlab.com/sascha.l.teichmann/ssh3d/grid"
+	"github.com/Liam-Weitzel/Impasse/grid"
 )
 
 // testWorld writes an ASCII map to a temp file and loads it, which also covers
@@ -38,11 +38,11 @@ func TestLoadWorldRejectsMissingFile(t *testing.T) {
 	}
 }
 
-func TestSpawnAssignsDistinctIDs(t *testing.T) {
+func TestJoinAssignsDistinctIDs(t *testing.T) {
 	w := testWorld(t, openRoom)
 
-	a := w.spawn()
-	b := w.spawn()
+	a := w.join()
+	b := w.join()
 
 	if a.id == b.id {
 		t.Fatalf("both players got id %d", a.id)
@@ -50,14 +50,86 @@ func TestSpawnAssignsDistinctIDs(t *testing.T) {
 	if !w.g.Walkable(a.pos) || !w.g.Walkable(b.pos) {
 		t.Fatalf("spawned into a wall: %v %v", a.pos, b.pos)
 	}
-	if a.pos == b.pos {
-		t.Errorf("both players spawned on %v", a.pos)
+}
+
+// Everyone starts on the same cell, wherever the map's S is.
+func TestEveryoneSpawnsOnTheMarker(t *testing.T) {
+	w := testWorld(t, ""+
+		"#####\n"+
+		"#...#\n"+
+		"#.S.#\n"+
+		"#####")
+
+	want := grid.Pos{X: 2, Y: 2}
+	if w.spawn != want {
+		t.Fatalf("spawn is %v, want %v", w.spawn, want)
+	}
+	if !w.hasMarker {
+		t.Error("world did not record that the map had a marker")
+	}
+
+	for i := 0; i < 5; i++ {
+		if p := w.join(); p.pos != want {
+			t.Fatalf("player %d started at %v, want %v", p.id, p.pos, want)
+		}
+	}
+}
+
+// The spawn cell is floor, so it must not block movement or be treated as wall.
+func TestSpawnCellIsWalkable(t *testing.T) {
+	w := testWorld(t, "#####\n#.S.#\n#####")
+
+	p := w.join()
+	w.queue(p.id, grid.West)
+	w.resolve()
+
+	if want := (grid.Pos{X: 1, Y: 1}); p.pos != want {
+		t.Fatalf("could not walk off the spawn, at %v want %v", p.pos, want)
+	}
+}
+
+// A map with no marker still has to start, falling back to the largest region.
+func TestMissingMarkerFallsBack(t *testing.T) {
+	w := testWorld(t, openRoom)
+
+	if w.hasMarker {
+		t.Error("reported a marker on a map that has none")
+	}
+	if !w.g.Walkable(w.spawn) {
+		t.Fatalf("fallback spawn %v is not walkable", w.spawn)
+	}
+}
+
+// Counting reachable cells from the spawn is what lets the server warn about
+// sealed off pockets, so it must not count them.
+func TestReachableExcludesSealedPockets(t *testing.T) {
+	w := testWorld(t, ""+
+		"#######\n"+
+		"#.#..S#\n"+
+		"###...#\n"+
+		"#######")
+
+	if w.walkable != 7 {
+		t.Fatalf("counted %d walkable cells, want 7", w.walkable)
+	}
+	if w.reachable != 6 {
+		t.Fatalf("counted %d reachable cells, want 6", w.reachable)
+	}
+}
+
+func TestDuplicateSpawnMarkersAreRejected(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "map.txt")
+	if err := os.WriteFile(path, []byte("#####\n#S.S#\n#####"), 0o600); err != nil {
+		t.Fatalf("writing map: %v", err)
+	}
+	if _, err := loadWorld(path); err == nil {
+		t.Fatal("want an error for two spawn markers")
 	}
 }
 
 func TestResolveAppliesQueuedMove(t *testing.T) {
 	w := testWorld(t, openRoom)
-	p := w.spawn()
+	p := w.join()
 	p.pos = grid.Pos{X: 1, Y: 1}
 
 	w.queue(p.id, grid.SouthEast)
@@ -72,7 +144,7 @@ func TestResolveAppliesQueuedMove(t *testing.T) {
 // key press would move the player every tick forever.
 func TestResolveClearsQueue(t *testing.T) {
 	w := testWorld(t, openRoom)
-	p := w.spawn()
+	p := w.join()
 	p.pos = grid.Pos{X: 1, Y: 1}
 
 	w.queue(p.id, grid.East)
@@ -92,7 +164,7 @@ func TestResolveClearsQueue(t *testing.T) {
 // Queuing again before the tick locks replaces the earlier action.
 func TestQueueOverwrites(t *testing.T) {
 	w := testWorld(t, openRoom)
-	p := w.spawn()
+	p := w.join()
 	p.pos = grid.Pos{X: 1, Y: 1}
 
 	w.queue(p.id, grid.East)
@@ -106,7 +178,7 @@ func TestQueueOverwrites(t *testing.T) {
 
 func TestResolveRefusesMoveIntoWall(t *testing.T) {
 	w := testWorld(t, openRoom)
-	p := w.spawn()
+	p := w.join()
 	p.pos = grid.Pos{X: 1, Y: 1}
 
 	w.queue(p.id, grid.North)
@@ -123,7 +195,7 @@ func TestResolveRefusesCornerCut(t *testing.T) {
 		"###\n"+
 		"#.#\n"+
 		"##.")
-	p := w.spawn()
+	p := w.join()
 	p.pos = grid.Pos{X: 1, Y: 1}
 
 	w.queue(p.id, grid.SouthEast)
@@ -138,8 +210,8 @@ func TestResolveRefusesCornerCut(t *testing.T) {
 func TestResolveIsSimultaneous(t *testing.T) {
 	w := testWorld(t, openRoom)
 
-	a := w.spawn()
-	b := w.spawn()
+	a := w.join()
+	b := w.join()
 	a.pos = grid.Pos{X: 1, Y: 1}
 	b.pos = grid.Pos{X: 3, Y: 3}
 
@@ -165,8 +237,8 @@ func TestResolveIsSimultaneous(t *testing.T) {
 func TestPlayersStack(t *testing.T) {
 	w := testWorld(t, openRoom)
 
-	a := w.spawn()
-	b := w.spawn()
+	a := w.join()
+	b := w.join()
 	a.pos = grid.Pos{X: 1, Y: 1}
 	b.pos = grid.Pos{X: 2, Y: 1}
 
@@ -194,7 +266,7 @@ func TestQueueForUnknownPlayerIsIgnored(t *testing.T) {
 
 func TestRemoveDropsPlayer(t *testing.T) {
 	w := testWorld(t, openRoom)
-	p := w.spawn()
+	p := w.join()
 
 	w.remove(p.id)
 
@@ -208,7 +280,7 @@ func TestRemoveDropsPlayer(t *testing.T) {
 
 func TestWelcomeCarriesMapAndTick(t *testing.T) {
 	w := testWorld(t, openRoom)
-	p := w.spawn()
+	p := w.join()
 
 	got := w.welcome(p)
 
@@ -229,8 +301,8 @@ func TestWelcomeCarriesMapAndTick(t *testing.T) {
 
 func TestStateListsEveryPlayer(t *testing.T) {
 	w := testWorld(t, openRoom)
-	a := w.spawn()
-	b := w.spawn()
+	a := w.join()
+	b := w.join()
 
 	state := w.state()
 

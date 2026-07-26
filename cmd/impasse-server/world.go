@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"time"
 
-	"gitlab.com/sascha.l.teichmann/ssh3d/grid"
-	"gitlab.com/sascha.l.teichmann/ssh3d/proto"
+	"github.com/Liam-Weitzel/Impasse/grid"
+	"github.com/Liam-Weitzel/Impasse/proto"
 )
 
 // TickDuration is the length of one tick. Actions queued during a tick all
@@ -26,9 +28,19 @@ type player struct {
 type world struct {
 	g       *grid.Grid
 	players map[uint64]*player
-	spawns  []grid.Pos
-	tick    uint64
-	nextID  uint64
+	// spawn is where every player enters. All players share one point, so
+	// the start of a round is a scramble out of the same door.
+	spawn grid.Pos
+	// walkable counts every floor cell and reachable counts the ones a
+	// player can actually get to from the spawn. They differ when a map has
+	// sealed off pockets.
+	walkable  int
+	reachable int
+	// hasMarker records whether the spawn came from an S in the map or from
+	// the fallback.
+	hasMarker bool
+	tick      uint64
+	nextID    uint64
 }
 
 func loadWorld(path string) (*world, error) {
@@ -43,22 +55,40 @@ func loadWorld(path string) (*world, error) {
 		return nil, err
 	}
 
+	spawn, ok := g.Spawn()
+	if !ok {
+		// No S in the map. Fall back to the first cell of the largest
+		// region rather than refusing to start, but it is worth saying so.
+		region := g.LargestRegion()
+		if len(region) == 0 {
+			return nil, errors.New("map has no walkable cells")
+		}
+		spawn = region[0]
+	}
+	if !g.Walkable(spawn) {
+		return nil, fmt.Errorf("spawn point %v is not walkable", spawn)
+	}
+
 	return &world{
-		g:       g,
-		players: make(map[uint64]*player),
-		spawns:  g.Spawns(),
+		g:         g,
+		players:   make(map[uint64]*player),
+		spawn:     spawn,
+		hasMarker: ok,
+		walkable:  len(g.Walkables()),
+		// What players can get to is defined by where they start, so
+		// measure from the spawn rather than from the largest region.
+		reachable: len(g.Reachable(spawn)),
 	}, nil
 }
 
-// spawn places a new player and returns it. Spawn points cycle through the
-// walkable cells so two players joining together do not land on each other.
-func (w *world) spawn() *player {
-	p := &player{id: w.nextID}
-	w.nextID++
-
-	if len(w.spawns) > 0 {
-		p.pos = w.spawns[int(p.id)%len(w.spawns)]
+// join places a new player and returns it. Everyone starts on the same cell.
+// Players stack, so there is nothing to resolve when several arrive at once.
+func (w *world) join() *player {
+	p := &player{
+		id:  w.nextID,
+		pos: w.spawn,
 	}
+	w.nextID++
 
 	w.players[p.id] = p
 	return p

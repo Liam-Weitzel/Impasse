@@ -1,10 +1,8 @@
-package opengl
+package render
 
 import (
 	"fmt"
 	"image"
-	"math"
-	"sort"
 	"unsafe"
 
 	gl "github.com/go-gl/gl/v3.1/gles2"
@@ -13,10 +11,10 @@ import (
 	_ "embed"
 )
 
-//go:embed texture.vert
+//go:embed shape.vert
 var vertexSrc string
 
-//go:embed texture.frag
+//go:embed shape.frag
 var fragSrc string
 
 type State struct {
@@ -26,13 +24,8 @@ type State struct {
 	lightPosLoc   int32
 	ambientColLoc int32
 	diffuseColLoc int32
-	useTextureLoc int32
 
-	lastCull    uint32
-	lastTexture uint32
-
-	textureOn    bool
-	textureKnown bool
+	lastCull uint32
 }
 
 type Renderer struct {
@@ -74,56 +67,7 @@ func (r *Renderer) Delete() {
 	gl.DeleteProgram(r.program)
 }
 
-func (r *Renderer) RenderShapes(c *Camera, css []*CompiledShape) {
-
-	// Sort by textures to reduce texture changes.
-	sort.Slice(css, func(i, j int) bool {
-		return css[i].texture < css[j].texture
-	})
-
-	front := mgl32.Vec3{
-		float32(math.Cos(float64(c.Angle))),
-		float32(math.Sin(float64(c.Angle))),
-		0}
-
-	up := mgl32.Vec3{0, 0, -1}
-
-	flip := mgl32.Scale3D(1, -1, 1)
-
-	viewMat := mgl32.LookAtV(c.Position, c.Position.Add(front), up)
-	rot := mgl32.HomogRotate3D(c.UpAngle, mgl32.Vec3{1, 0, 0})
-	viewMat = rot.Mul4(viewMat)
-
-	mvMat := viewMat.Mul4(flip)
-	normalMat := mvMat.Inv().Transpose()
-
-	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-	gl.CullFace(gl.BACK)
-	gl.Enable(gl.CULL_FACE)
-	r.state.lastCull = gl.CW
-	gl.FrontFace(r.state.lastCull)
-
-	gl.UseProgram(r.program)
-
-	gl.ActiveTexture(gl.TEXTURE0)
-
-	gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
-	gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
-	gl.UniformMatrix4fv(r.state.projMatLoc, 1, false, &r.ProjMat[0])
-
-	// Head light
-	gl.Uniform3fv(r.state.lightPosLoc, 1, &c.Position[0])
-
-	gl.Uniform3fv(r.state.ambientColLoc, 1, &r.ambientCol[0])
-
-	for _, cs := range css {
-		cs.Render(r.state)
-	}
-}
-
-// RenderMesh draws shapes with a view matrix supplied by the caller. Unlike
-// RenderShapes it applies no coordinate flip, so geometry is drawn in the
-// coordinates it was built in.
+// RenderMesh draws shapes with a view matrix supplied by the caller.
 //
 // Front faces are clockwise, not counter clockwise. The projection mirrors
 // clip space vertically to undo the bottom up order glReadPixels returns, and
@@ -142,7 +86,6 @@ func (r *Renderer) RenderMesh(view mgl32.Mat4, css []*CompiledShape) {
 	gl.FrontFace(r.state.lastCull)
 
 	gl.UseProgram(r.program)
-	gl.ActiveTexture(gl.TEXTURE0)
 
 	gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &view[0])
 	gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
@@ -157,7 +100,7 @@ func (r *Renderer) RenderMesh(view mgl32.Mat4, css []*CompiledShape) {
 	}
 }
 
-type SpherePostion struct {
+type SpherePosition struct {
 	Pos mgl32.Vec3
 	Col mgl32.Vec3
 }
@@ -168,7 +111,7 @@ type SpherePostion struct {
 func (r *Renderer) RenderSpheresMesh(
 	view mgl32.Mat4,
 	sp *Sphere,
-	positions []SpherePostion,
+	positions []SpherePosition,
 ) {
 	gl.Enable(gl.CULL_FACE)
 	gl.CullFace(gl.BACK)
@@ -177,7 +120,6 @@ func (r *Renderer) RenderSpheresMesh(
 
 	diff := mgl32.Vec3{0.5, 0.5, 0.5}
 	gl.Uniform3fv(r.state.diffuseColLoc, 1, &diff[0])
-	r.state.useTexture(false)
 
 	for i := range positions {
 		mvMat := view.Mul4(mgl32.Translate3D(
@@ -188,47 +130,6 @@ func (r *Renderer) RenderSpheresMesh(
 
 		gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
 		gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
-
-		gl.Uniform3fv(r.state.ambientColLoc, 1, &positions[i].Col[0])
-
-		bindVBO(sp.vbo)
-		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, sp.ibo)
-		gl.DrawElements(gl.TRIANGLES, sp.nIndices, gl.UNSIGNED_SHORT, unsafe.Pointer(nil))
-	}
-}
-
-func (r *Renderer) RenderSpheres(c *Camera, sp *Sphere, positions []SpherePostion) {
-	front := mgl32.Vec3{
-		float32(math.Cos(float64(c.Angle))),
-		float32(math.Sin(float64(c.Angle))),
-		0}
-
-	up := mgl32.Vec3{0, 0, -1}
-
-	viewMat := mgl32.LookAtV(c.Position, c.Position.Add(front), up)
-	rot := mgl32.HomogRotate3D(c.UpAngle, mgl32.Vec3{1, 0, 0})
-
-	gl.Enable(gl.CULL_FACE)
-	gl.CullFace(gl.BACK)
-	gl.FrontFace(gl.CCW)
-
-	diff := mgl32.Vec3{0.5, 0.5, 0.5}
-	gl.Uniform3fv(r.state.diffuseColLoc, 1, &diff[0])
-	r.state.useTexture(false)
-
-	for i := range positions {
-		vm := rot.Mul4(viewMat).Mul4(
-			mgl32.Translate3D(
-				positions[i].Pos[0],
-				positions[i].Pos[1],
-				positions[i].Pos[2]))
-
-		mvMat := vm
-		normalMat := mvMat.Inv().Transpose()
-
-		gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
-		gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
-		gl.UniformMatrix4fv(r.state.projMatLoc, 1, false, &r.ProjMat[0])
 
 		gl.Uniform3fv(r.state.ambientColLoc, 1, &positions[i].Col[0])
 
@@ -263,30 +164,6 @@ func (s *State) cullCCW(ccw bool) {
 	}
 }
 
-// useTexture flips the shader between sampling a texture and using a flat
-// colour. Grid geometry is untextured, X3D shapes are not.
-func (s *State) useTexture(on bool) {
-	if s.textureKnown && s.textureOn == on {
-		return
-	}
-	s.textureKnown = true
-	s.textureOn = on
-
-	var v int32
-	if on {
-		v = 1
-	}
-	gl.Uniform1i(s.useTextureLoc, v)
-}
-
-func (s *State) bindTexture(texture uint32) {
-	if texture == s.lastTexture {
-		return
-	}
-	s.lastTexture = texture
-	gl.BindTexture(gl.TEXTURE_2D, texture)
-}
-
 func (s *State) extractUniforms(program uint32) error {
 
 	gl.UseProgram(program)
@@ -301,7 +178,6 @@ func (s *State) extractUniforms(program uint32) error {
 		{"diffuseCol", &s.diffuseColLoc},
 		{"normalMat", &s.normalMatLoc},
 		{"lightPos", &s.lightPosLoc},
-		{"useTexture", &s.useTextureLoc},
 	} {
 		if *l.addr = gl.GetUniformLocation(
 			program, gl.Str(l.name+"\x00")); *l.addr < 0 {
