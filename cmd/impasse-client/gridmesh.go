@@ -45,12 +45,12 @@ func cellCenter(p grid.Pos) mgl32.Vec3 {
 //
 // Quads are wound counter clockwise seen from the front, which is what the
 // renderer culls against.
-func buildGridMesh(g *grid.Grid, atlas *render.Atlas, t *theme) ([]*render.CompiledShape, error) {
+func buildGridMesh(g *grid.Grid, atlas *render.Atlas) ([]*render.CompiledShape, error) {
 	var shapes []*render.CompiledShape
 
 	for cy := 0; cy < g.Height(); cy += chunkCells {
 		for cx := 0; cx < g.Width(); cx += chunkCells {
-			chunk, err := buildChunk(g, atlas, t, cx, cy)
+			chunk, err := buildChunk(g, atlas, cx, cy)
 			if err != nil {
 				for _, cs := range shapes {
 					cs.Delete()
@@ -65,10 +65,10 @@ func buildGridMesh(g *grid.Grid, atlas *render.Atlas, t *theme) ([]*render.Compi
 }
 
 // buildChunk makes the geometry for one block of cells, starting at cx, cy.
-func buildChunk(g *grid.Grid, atlas *render.Atlas, t *theme, cx, cy int) ([]*render.CompiledShape, error) {
+func buildChunk(g *grid.Grid, atlas *render.Atlas, cx, cy int) ([]*render.CompiledShape, error) {
 
-	floors := render.NewTexturedMeshBuilder(t.floorTint)
-	walls := render.NewTexturedMeshBuilder(t.wallTint)
+	floors := render.NewTexturedMeshBuilder(floorTint)
+	walls := render.NewTexturedMeshBuilder(wallTint)
 
 	const h = wallHeight
 

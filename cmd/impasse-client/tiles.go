@@ -65,13 +65,12 @@ func hash2(x, y int) uint32 {
 	return h ^ (h >> 16)
 }
 
-// loadAtlas uses the tileset at path, falling back to the theme's generated one
-// when no path is given. A path that fails to load is an error rather than a
-// silent fallback, because a typo would otherwise look like the art simply not
-// arriving.
-func loadAtlas(path string, t *theme) (*render.Atlas, error) {
+// loadAtlas uses the tileset at path, or the generated one when no path is
+// given. A path that fails to load is an error rather than a silent fallback,
+// because a typo would otherwise look like the art simply not arriving.
+func loadAtlas(path string) (*render.Atlas, error) {
 	if path == "" {
-		return buildAtlas(t)
+		return buildAtlas()
 	}
 	return render.LoadAtlas(path, atlasCols, atlasRows)
 }

@@ -65,20 +65,11 @@ func main() {
 		idleDuration    = flag.Duration("idle", 0, "idle duration")
 		sessionDuration = flag.Duration("duration", 0, "session duration")
 		tiles           = flag.String("tiles", "",
-			"PNG tile atlas, empty for the theme's generated one")
-		themeName = flag.String("theme", "gritty", "look: gritty or matrix")
-		modelName = flag.String("model", "pylon",
-			"player marker: sphere, cube, prism, diamond or pylon")
+			"PNG tile atlas, empty for the generated one")
 	)
 	flag.Parse()
 
 	connection, token, err := connectionParams()
-	check(err)
-
-	th, err := themeByName(*themeName)
-	check(err)
-
-	model, err := parseModel(*modelName)
 	check(err)
 
 	run := func() error {
@@ -103,8 +94,6 @@ func main() {
 					(*idleDuration).Abs(),
 					(*sessionDuration).Abs(),
 					*tiles,
-					th,
-					model,
 				)
 			})
 		})

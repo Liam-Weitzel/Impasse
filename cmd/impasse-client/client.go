@@ -64,7 +64,6 @@ type client struct {
 	userID uint64
 
 	g         *grid.Grid
-	theme     *theme
 	atlas     *render.Atlas
 	tilesPath string
 	shapes    []*render.CompiledShape
@@ -86,7 +85,6 @@ type client struct {
 	// knowing anything about it.
 	playerModel []*render.CompiledShape
 	pickupModel []*render.CompiledShape
-	modelKind   modelKind
 	instances   []render.Instance
 
 	fbo           uint32
@@ -134,14 +132,10 @@ func startClient(
 	idleDuration time.Duration,
 	sessionDuration time.Duration,
 	tilesPath string,
-	th *theme,
-	model modelKind,
 ) error {
 
 	c := &client{
 		tilesPath:       tilesPath,
-		theme:           th,
-		modelKind:       model,
 		con:             con,
 		userID:          welcome.ID,
 		g:               g,
@@ -201,14 +195,14 @@ func (c *client) allocFrameBuffer(w, h int) error {
 func (c *client) run() error {
 
 	var err error
-	if c.renderer, err = render.NewRenderer(c.theme.ambient); err != nil {
+	if c.renderer, err = render.NewRenderer(ambient); err != nil {
 		return err
 	}
 	defer c.renderer.Delete()
 
 	// Fog and the clear colour are the same value, or the world fades into
 	// one colour and then meets a hard edge of another.
-	c.renderer.SetFog(c.theme.background, c.theme.fogFar)
+	c.renderer.SetFog(background, fogFar)
 
 	sw, sh := c.screen.Size()
 	aspect, rw, rh := fitSize(sw*4, sh*8)
@@ -220,7 +214,7 @@ func (c *client) run() error {
 
 	c.updateProjection(aspect)
 
-	if c.playerModel, err = buildPlayerModel(c.modelKind, playerRadius); err != nil {
+	if c.playerModel, err = buildPlayerModel(playerRadius); err != nil {
 		return err
 	}
 	defer deleteShapes(c.playerModel)
@@ -230,7 +224,7 @@ func (c *client) run() error {
 	}
 	defer deleteShapes(c.pickupModel)
 
-	if c.arrow, err = buildArrow(c.theme.arrow); err != nil {
+	if c.arrow, err = buildArrow(arrowColor); err != nil {
 		return err
 	}
 	defer func() {
@@ -248,13 +242,13 @@ func (c *client) run() error {
 		}
 	}()
 
-	if c.atlas, err = loadAtlas(c.tilesPath, c.theme); err != nil {
+	if c.atlas, err = loadAtlas(c.tilesPath); err != nil {
 		return err
 	}
 	defer c.atlas.Delete()
 	c.renderer.SetAtlas(c.atlas)
 
-	if c.shapes, err = buildGridMesh(c.g, c.atlas, c.theme); err != nil {
+	if c.shapes, err = buildGridMesh(c.g, c.atlas); err != nil {
 		return err
 	}
 	defer func() {
@@ -334,7 +328,7 @@ func (c *client) applyState(state proto.State) {
 			c.attendees[p.ID] = &attendee{
 				from:    to,
 				to:      to,
-				col:     c.theme.playerColor(p.ID),
+				col:     playerColor(p.ID),
 				stunned: p.Stunned > 0,
 				casting: p.Casting > 0,
 			}
@@ -513,10 +507,10 @@ func (c *client) render() {
 		pos := a.at(alpha)
 		col := a.col
 		if id == c.userID {
-			col = col.Mul(c.theme.selfBoost)
+			col = col.Mul(selfBoost)
 		}
 		if a.stunned {
-			col = c.theme.stunned
+			col = stunnedColor
 		}
 		c.instances = append(c.instances, render.Instance{
 			Model: mgl32.Translate3D(pos[0], pos[1], pos[2]),
@@ -536,7 +530,7 @@ func (c *client) render() {
 			c.instances = append(c.instances, render.Instance{
 				Model: mgl32.Translate3D(pos[0], pos[1], pos[2]+bob).
 					Mul4(mgl32.HomogRotate3DZ(spin)),
-				Col: c.theme.objective,
+				Col: objectiveColor,
 			})
 		}
 		c.renderer.RenderInstances(view, c.pickupModel, c.instances)
@@ -580,7 +574,7 @@ func (c *client) matchClock() string {
 
 // drawTelegraphs marks the ground every in-flight burst is about to cover.
 func (c *client) drawTelegraphs(view mgl32.Mat4, alpha float32) {
-	col := telegraphColor(c.theme.telegraph, alpha)
+	col := telegraphColor(telegraphBase, alpha)
 	for _, a := range c.attendees {
 		if !a.casting {
 			continue
@@ -608,7 +602,7 @@ func (c *client) drawArrow(view mgl32.Mat4, alpha float32) {
 
 	model := arrowTransform(from, target)
 	for _, cs := range c.arrow {
-		c.renderer.RenderShapeAt(view, model, cs, c.theme.arrow)
+		c.renderer.RenderShapeAt(view, model, cs, arrowColor)
 	}
 }
 
