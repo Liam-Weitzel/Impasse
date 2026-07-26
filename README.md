@@ -13,32 +13,73 @@ the rendering stack. The game is new work. MIT licensed, see [LICENSE](./LICENSE
 You need a GitHub OAuth app with device flow enabled. Its client id is not a secret, but
 it is kept out of the repo. The client secret is never used and must not be passed.
 
+### Deploying with nix
+
+`services.impasse` runs it as a systemd service and sets up the port, so nothing has to
+be done by hand:
+
+```nix
+{
+  inputs.impasse.url = "github:Liam-Weitzel/Impasse";
+
+  # in the NixOS configuration
+  imports = [ inputs.impasse.nixosModules.default ];
+
+  services.impasse = {
+    enable = true;
+    clientIdFile = "/run/secrets/impasse-github-client-id";
+    openFirewall = true;
+  };
+}
+```
+
+The client id comes from a file rather than a string so it stays out of the world
+readable nix store, and systemd passes it in through `LoadCredential`. Options are
+`port` (default 22), `botPort`, `map`, `package`, `openFirewall` and
+`lowerUnprivilegedPorts`.
+
+### Running it by hand
+
+```sh
+nix run . -- --map maps/vault.txt        # or: nix build .#impasse
+```
+
+`nix build` wraps the renderer with the GL library paths baked in, so it does not depend
+on the environment it is started from, and points the server's `--renderer` at it. To
+work on the code instead:
+
 ```sh
 nix develop
 go build -o bin/impasse-server ./cmd/impasse-server
 go build -o bin/impasse-client ./cmd/impasse-client
 
 export IMPASSE_GITHUB_CLIENT_ID=Ov23li...
-./bin/impasse-server --map maps/vault.txt
+./bin/impasse-server --map maps/vault.txt --renderer ./bin/impasse-client
 ```
 
-It listens on port 22, which normally needs privilege. Lower the floor instead of giving
-the process any:
+### Port 22
+
+It listens on port 22, which normally needs privilege. Lower the floor on what an
+unprivileged process may bind instead of giving the process any privilege:
 
 ```sh
 sudo sysctl -w net.ipv4.ip_unprivileged_port_start=22
 ```
 
-On NixOS put `boot.kernel.sysctl."net.ipv4.ip_unprivileged_port_start" = 22;` in the
-system config to keep it across reboots. The knob covers IPv6 as well. Use `--port` for
-an unprivileged port instead.
+The NixOS module does this for you whenever `port` is below 1024. To set it by hand and
+keep it across reboots, `boot.kernel.sysctl."net.ipv4.ip_unprivileged_port_start" = 22;`.
+The knob covers IPv6 as well despite the name. Use `--port` for an unprivileged port
+instead.
 
-Do not use `setcap cap_net_bind_service+ep` on the server. It works for binding, but a
-child of a file-capability binary execs with `AT_SECURE=1`, and glibc then ignores
-`LD_LIBRARY_PATH` when resolving libraries. SDL loads libEGL by `dlopen` and the flake
-supplies it only on that path, so every renderer dies with "Could not initialize OpenGL
-/ GLES library". Running as root avoids that but puts every player's renderer under
-root.
+Do not use `setcap cap_net_bind_service+ep` on the server. It binds the port, but every
+renderer then dies with "Could not initialize OpenGL / GLES library". A child of a
+file-capability binary execs with `AT_SECURE=1`, and glibc in that mode ignores
+`LD_LIBRARY_PATH` when resolving libraries, including for `dlopen`. SDL loads libEGL by
+`dlopen`. The variable is still in the environment, which makes this look fine until you
+check whether the loader honours it. Running as root avoids the problem but puts every
+player's renderer under root.
+
+### Connecting
 
 Connect as a human. No SSH key needed:
 
@@ -71,6 +112,7 @@ terminals like GNOME and XFCE, set `COLORTERM=truecolor` and add
 | `--match` | Match length, default 2m |
 | `--intermission` | Break between matches, default 15s |
 | `--github-client-id` | Also read from `IMPASSE_GITHUB_CLIENT_ID` |
+| `--github-client-id-file` | Read the client id from a file, for systemd credentials |
 
 Renderer flags go after `--` and are passed through: `-tiles` for a replacement tile
 atlas, `-log` for a log file, `-idle` and `-duration` for session limits.
@@ -78,8 +120,13 @@ atlas, `-log` for a log file, `-idle` and `-duration` for session limits.
 ### Building without nix
 
 You need an SDL2 built with `--enable-video-offscreen=yes` and `PKG_CONFIG_PATH` pointed
-at it. SDL `dlopen`s libEGL and libGLESv2 by soname, so they must be findable at run
-time. The flake puts libglvnd on `LD_LIBRARY_PATH` for that reason.
+at it. Distro packages almost never enable that driver, so this usually means building
+SDL from source.
+
+SDL `dlopen`s libEGL and libGLESv2 by soname, so they are in no RUNPATH and have to be
+findable at run time. The dev shell puts them on `LD_LIBRARY_PATH`; the built package
+bakes the same paths into a wrapper around the renderer, which is why it runs correctly
+from an empty environment.
 
 ## How it works
 
@@ -112,6 +159,7 @@ enable. The nix flake builds one from source.
 | `render` | GL layer. Shaders, meshes, textures, framebuffer |
 | `examples` | Reference bot |
 | `tools` | Map generator |
+| `nix` | NixOS module for running it as a service |
 
 ## The world
 

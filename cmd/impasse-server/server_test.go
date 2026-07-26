@@ -404,17 +404,28 @@ func TestTCPTransportWorksTheSame(t *testing.T) {
 		<-stopped
 	})
 
-	var addr string
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
+	// Port 0 means only the server knows what it bound to, so ask it. The
+	// command loop runs on the same goroutine as listen and only starts once
+	// listen has returned, so this waits for the listener and reads it without
+	// touching server state from here.
+	bound := make(chan string, 1)
+	select {
+	case s.cmds <- func(s *server) {
 		if len(s.listeners) > 0 {
-			addr = s.listeners[0].Addr().String()
-			break
+			bound <- s.listeners[0].Addr().String()
+			return
 		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	if addr == "" {
+		bound <- ""
+	}:
+	case <-stopped:
+		t.Fatal("server stopped before it was listening")
+	case <-time.After(2 * time.Second):
 		t.Fatal("TCP listener never came up")
+	}
+
+	addr := <-bound
+	if addr == "" {
+		t.Fatal("server is running with no listeners")
 	}
 
 	b := dialBot(t, s, addr)

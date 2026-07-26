@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -296,6 +297,34 @@ func (h *handler) sshHandle(s ssh.Session) {
 	cmd.Wait()
 }
 
+// resolveClientID picks the GitHub client id out of a flag, a file or the
+// environment, in that order.
+//
+// The file is what systemd's LoadCredential hands over, and on NixOS it is the
+// only one of the three that keeps the id out of the world readable store and
+// off a command line every process can read. Trailing whitespace is stripped,
+// since a file written by a human ends in a newline and a client id with a
+// newline on it fails at GitHub with nothing useful to go on.
+func resolveClientID(flagValue, file, env string) (string, error) {
+	if flagValue != "" {
+		return flagValue, nil
+	}
+
+	if file != "" {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return "", fmt.Errorf("reading github client id: %w", err)
+		}
+		id := strings.TrimSpace(string(b))
+		if id == "" {
+			return "", fmt.Errorf("github client id file %s is empty", file)
+		}
+		return id, nil
+	}
+
+	return strings.TrimSpace(env), nil
+}
+
 func main() {
 
 	dir, err := os.Getwd()
@@ -315,6 +344,8 @@ func main() {
 		dbFile     = flag.String("db", "impasse.db", "path to the score database")
 		ghClientID = flag.String("github-client-id", "",
 			"GitHub OAuth app client id. Also read from IMPASSE_GITHUB_CLIENT_ID")
+		ghClientIDFile = flag.String("github-client-id-file", "",
+			"file holding the client id, for systemd LoadCredential and the like")
 		matchLen = flag.Duration("match", DefaultMatchDuration, "match length")
 		breakLen = flag.Duration("intermission", DefaultIntermissionDuration,
 			"break between matches")
@@ -325,14 +356,16 @@ func main() {
 	// GitHub sign in is not optional. Without it an SSH key would be the
 	// identity again, and keys are free, so one person could hold as many
 	// players as they liked.
-	clientID := *ghClientID
-	if clientID == "" {
-		clientID = os.Getenv("IMPASSE_GITHUB_CLIENT_ID")
+	clientID, err := resolveClientID(*ghClientID, *ghClientIDFile,
+		os.Getenv("IMPASSE_GITHUB_CLIENT_ID"))
+	if err != nil {
+		log.Fatalln(err)
 	}
 	if clientID == "" {
-		log.Fatalln("a GitHub OAuth client id is required: pass --github-client-id " +
-			"or set IMPASSE_GITHUB_CLIENT_ID. The client id is not a secret, " +
-			"but the client secret is never needed and must not be given here.")
+		log.Fatalln("a GitHub OAuth client id is required: pass --github-client-id, " +
+			"--github-client-id-file, or set IMPASSE_GITHUB_CLIENT_ID. The client id " +
+			"is not a secret, but the client secret is never needed and must not be " +
+			"given here.")
 	}
 
 	w, err := loadWorld(*mapFile)

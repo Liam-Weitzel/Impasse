@@ -19,13 +19,24 @@ type fakeGitHub struct {
 	// pendingPolls is how many times the token endpoint says "not yet"
 	// before succeeding.
 	pendingPolls atomic.Int32
-	// tokenError, when set, is returned instead of a token.
-	tokenError string
+	// tokenErr, when non empty, is returned instead of a token. Held
+	// atomically because a test clears it while the token endpoint is being
+	// polled, so the write and the handler's read are on different goroutines.
+	tokenErr atomic.Value
 	// polls counts how many times the token endpoint was hit.
 	polls atomic.Int32
 
 	login string
 	id    int64
+}
+
+func (f *fakeGitHub) setTokenError(s string) {
+	f.tokenErr.Store(s)
+}
+
+func (f *fakeGitHub) tokenError() string {
+	s, _ := f.tokenErr.Load().(string)
+	return s
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
@@ -50,8 +61,8 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 		f.polls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 
-		if f.tokenError != "" {
-			w.Write([]byte(`{"error":"` + f.tokenError + `"}`))
+		if e := f.tokenError(); e != "" {
+			w.Write([]byte(`{"error":"` + e + `"}`))
 			return
 		}
 		if f.pendingPolls.Add(-1) >= 0 {
@@ -150,10 +161,10 @@ func TestDeviceFlowHandlesSlowDown(t *testing.T) {
 	}
 	code.Interval = 10 * time.Millisecond
 
-	f.tokenError = "slow_down"
+	f.setTokenError("slow_down")
 	go func() {
 		time.Sleep(60 * time.Millisecond)
-		f.tokenError = ""
+		f.setTokenError("")
 	}()
 
 	if _, err := g.Wait(context.Background(), code); err != nil {
@@ -163,7 +174,7 @@ func TestDeviceFlowHandlesSlowDown(t *testing.T) {
 
 func TestDeviceFlowCancelledSignIn(t *testing.T) {
 	f := newFakeGitHub(t)
-	f.tokenError = "access_denied"
+	f.setTokenError("access_denied")
 
 	g := f.client()
 	code, err := g.Start(context.Background())
@@ -185,7 +196,7 @@ func TestDeviceFlowCancelledSignIn(t *testing.T) {
 // so rather than surfacing a bare code.
 func TestDeviceFlowExplainsDisabledDeviceFlow(t *testing.T) {
 	f := newFakeGitHub(t)
-	f.tokenError = "device_flow_disabled"
+	f.setTokenError("device_flow_disabled")
 
 	g := f.client()
 	code, _ := g.Start(context.Background())
