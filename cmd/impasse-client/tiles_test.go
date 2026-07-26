@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/Liam-Weitzel/Impasse/render"
@@ -75,3 +76,7 @@ func TestHashSpreads(t *testing.T) {
 		}
 	}
 }
+
+// testRand gives every palette call the same stream, so two calls can be
+// compared byte for byte.
+func testRand() *rand.Rand { return rand.New(rand.NewSource(20260726)) }

@@ -30,13 +30,6 @@ const (
 	chunkCells = 16
 )
 
-// Surface tints. Tiles carry the detail, these carry the lighting response, so
-// they are near white rather than the colour of the surface itself.
-var (
-	floorColor = mgl32.Vec3{0.85, 0.85, 0.90}
-	wallColor  = mgl32.Vec3{0.95, 0.90, 0.85}
-)
-
 // cellCenter is the world point at the middle of a cell, on the floor.
 func cellCenter(p grid.Pos) mgl32.Vec3 {
 	return mgl32.Vec3{
@@ -52,12 +45,12 @@ func cellCenter(p grid.Pos) mgl32.Vec3 {
 //
 // Quads are wound counter clockwise seen from the front, which is what the
 // renderer culls against.
-func buildGridMesh(g *grid.Grid, atlas *render.Atlas) ([]*render.CompiledShape, error) {
+func buildGridMesh(g *grid.Grid, atlas *render.Atlas, t *theme) ([]*render.CompiledShape, error) {
 	var shapes []*render.CompiledShape
 
 	for cy := 0; cy < g.Height(); cy += chunkCells {
 		for cx := 0; cx < g.Width(); cx += chunkCells {
-			chunk, err := buildChunk(g, atlas, cx, cy)
+			chunk, err := buildChunk(g, atlas, t, cx, cy)
 			if err != nil {
 				for _, cs := range shapes {
 					cs.Delete()
@@ -72,10 +65,10 @@ func buildGridMesh(g *grid.Grid, atlas *render.Atlas) ([]*render.CompiledShape, 
 }
 
 // buildChunk makes the geometry for one block of cells, starting at cx, cy.
-func buildChunk(g *grid.Grid, atlas *render.Atlas, cx, cy int) ([]*render.CompiledShape, error) {
+func buildChunk(g *grid.Grid, atlas *render.Atlas, t *theme, cx, cy int) ([]*render.CompiledShape, error) {
 
-	floors := render.NewTexturedMeshBuilder(floorColor)
-	walls := render.NewTexturedMeshBuilder(wallColor)
+	floors := render.NewTexturedMeshBuilder(t.floorTint)
+	walls := render.NewTexturedMeshBuilder(t.wallTint)
 
 	const h = wallHeight
 

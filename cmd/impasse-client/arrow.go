@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"time"
 
 	"github.com/Liam-Weitzel/Impasse/render"
 	"github.com/go-gl/mathgl/mgl32"
@@ -17,17 +18,20 @@ import (
 const (
 	arrowScale  = cellSize * 0.5
 	arrowHeight = playerRadius*2 + cellSize*0.35
+	// How far the pointer rises and falls, and how long a cycle takes. It
+	// bobs so the eye finds it without it having to be bright enough to
+	// compete with the pickups themselves.
+	arrowBob       = cellSize * 0.12
+	arrowBobPeriod = 1400 * time.Millisecond
 )
-
-var arrowColor = mgl32.Vec3{0.95, 0.85, 0.30}
 
 // buildArrow makes an arrow pointing north, to be rotated at draw time.
 //
 // Quads are wound counter clockwise seen from above, matching the floor. The
 // head is a triangle, which goes through AddQuad as a quad with its last corner
 // repeated so the second triangle of the fan collapses.
-func buildArrow() ([]*render.CompiledShape, error) {
-	mb := render.NewMeshBuilder(arrowColor)
+func buildArrow(color mgl32.Vec3) ([]*render.CompiledShape, error) {
+	mb := render.NewMeshBuilder(color)
 
 	up := mgl32.Vec3{0, 0, 1}
 
@@ -71,7 +75,11 @@ func arrowTransform(from, to mgl32.Vec3) mgl32.Mat4 {
 
 	angle := float32(math.Atan2(float64(-dx), float64(dy)))
 
-	return mgl32.Translate3D(from[0], from[1], from[2]+arrowHeight).
+	// Bob, and lean into the turn a little, so it reads as pointing rather
+	// than as a decal.
+	lift := arrowHeight + arrowBob*(pulse(arrowBobPeriod)-0.5)*2
+
+	return mgl32.Translate3D(from[0], from[1], from[2]+lift).
 		Mul4(mgl32.HomogRotate3DZ(angle))
 }
 

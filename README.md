@@ -239,13 +239,21 @@ otherwise reaches into the neighbouring tile and draws a bright seam along every
 edge. Mipmaps are off for the same reason: they blend neighbouring tiles together at
 distance.
 
-`--tiles atlas.png` on the renderer replaces the tileset. With no path it generates one
+`-theme` on the renderer picks the look, and `--tiles atlas.png` replaces the tileset. With no path it generates one
 in code, so the game always has something to look at and a missing file is never fatal.
 A path that fails to load is an error rather than a silent fallback, since a typo would
 otherwise look like the art simply not arriving.
 
 Players, pickups and the pointer are never textured. They are solid colour so they stay
 readable against whatever the ground is doing.
+
+### Look
+
+Two themes, `matrix` and `gritty`, chosen with `-theme` on the renderer. A theme owns
+everything that has to agree: the clear colour and the fog colour are one value, so
+distance fades into the void rather than into a seam, and player colours are confined to
+a slice of the hue wheel so one off palette marker cannot read as a bug. See
+[`docs-art.md`](./docs-art.md).
 
 ### Scale and units
 
@@ -390,6 +398,16 @@ Milestone 1, the loop:
   `IMPASSE_CONNECTION`.
 * Added `S` to the map format for the spawn point. All players start there.
 * `maps/open.txt`, a wide map for exercising 8 way movement.
+
+Art:
+
+* Two themes with their own palettes, tile art, fog, and player colours.
+* Fog colour and clear colour are one value, and fog distance is per theme.
+* The stun telegraph is a frame rather than a filled square, so it does not hide
+  whoever is standing in it, and it swells over its tick.
+* The pointer and pickups bob, on the wall clock so they do not stutter when a tick
+  is late.
+* `tools/genmap.py` generates maps and refuses to write an unreachable one.
 
 Milestone 2, objectives:
 

@@ -26,6 +26,8 @@ type State struct {
 	diffuseColLoc int32
 	tilesLoc      int32
 	texturedLoc   int32
+	fogColorLoc   int32
+	fogFarLoc     int32
 
 	lastCull uint32
 
@@ -54,6 +56,8 @@ type Renderer struct {
 	program    uint32
 	ambientCol mgl32.Vec3
 	atlas      *Atlas
+	fogColor   mgl32.Vec3
+	fogFar     float32
 	ProjMat    mgl32.Mat4
 }
 
@@ -61,6 +65,15 @@ type Renderer struct {
 // draws with flat colours.
 func (r *Renderer) SetAtlas(a *Atlas) {
 	r.atlas = a
+}
+
+// SetFog decides where the world dissolves and into what. The colour has to
+// match whatever the framebuffer is cleared to, or distance fades to one colour
+// and then meets a hard edge of another.
+func (r *Renderer) SetFog(col mgl32.Vec3, far float32) {
+	r.fogColor = col
+	r.fogFar = far
+	gl.ClearColor(col[0], col[1], col[2], 1)
 }
 
 func NewRenderer(ambientCol mgl32.Vec3) (*Renderer, error) {
@@ -78,17 +91,21 @@ func NewRenderer(ambientCol mgl32.Vec3) (*Renderer, error) {
 	}
 
 	gl.Enable(gl.CULL_FACE)
-	gl.ClearColor(0, 0.5, 1, 1)
 
 	gl.Enable(gl.PRIMITIVE_RESTART_FIXED_INDEX)
 	gl.Enable(gl.DEPTH_TEST)
 	gl.DepthFunc(gl.LESS)
 
-	return &Renderer{
+	r := &Renderer{
 		state:      s,
 		program:    program,
 		ambientCol: ambientCol,
-	}, nil
+		fogColor:   mgl32.Vec3{0, 0, 0},
+		fogFar:     1500,
+	}
+	r.SetFog(r.fogColor, r.fogFar)
+
+	return r, nil
 }
 
 func (r *Renderer) Delete() {
@@ -129,6 +146,8 @@ func (r *Renderer) RenderMesh(view mgl32.Mat4, css []*CompiledShape) {
 	eye := mgl32.Vec3{0, 0, 0}
 	gl.Uniform3fv(r.state.lightPosLoc, 1, &eye[0])
 	gl.Uniform3fv(r.state.ambientColLoc, 1, &r.ambientCol[0])
+	gl.Uniform3fv(r.state.fogColorLoc, 1, &r.fogColor[0])
+	gl.Uniform1f(r.state.fogFarLoc, r.fogFar)
 
 	for _, cs := range css {
 		cs.Render(r.state)
@@ -241,6 +260,8 @@ func (s *State) extractUniforms(program uint32) error {
 		{"lightPos", &s.lightPosLoc},
 		{"tiles", &s.tilesLoc},
 		{"textured", &s.texturedLoc},
+		{"fogColor", &s.fogColorLoc},
+		{"fogFar", &s.fogFarLoc},
 	} {
 		if *l.addr = gl.GetUniformLocation(
 			program, gl.Str(l.name+"\x00")); *l.addr < 0 {

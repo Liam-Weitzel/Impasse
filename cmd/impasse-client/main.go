@@ -65,11 +65,15 @@ func main() {
 		idleDuration    = flag.Duration("idle", 0, "idle duration")
 		sessionDuration = flag.Duration("duration", 0, "session duration")
 		tiles           = flag.String("tiles", "",
-			"PNG tile atlas, empty for the generated default")
+			"PNG tile atlas, empty for the theme's generated one")
+		themeName = flag.String("theme", "gritty", "look: gritty or matrix")
 	)
 	flag.Parse()
 
 	connection, token, err := connectionParams()
+	check(err)
+
+	th, err := themeByName(*themeName)
 	check(err)
 
 	run := func() error {
@@ -94,6 +98,7 @@ func main() {
 					(*idleDuration).Abs(),
 					(*sessionDuration).Abs(),
 					*tiles,
+					th,
 				)
 			})
 		})

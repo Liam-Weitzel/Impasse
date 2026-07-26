@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image"
 	"math"
-	"math/rand"
 	"time"
 	"unicode/utf8"
 
@@ -28,13 +27,11 @@ const (
 
 	playerRadius    = cellSize * 0.3
 	objectiveRadius = cellSize * 0.18
-	// Pickups float clear of the floor so they read at a steep camera angle.
+	// Pickups float clear of the floor so they read at a steep camera angle,
+	// and bob so they are the only moving thing on an empty floor.
 	objectiveHeight = cellSize * 0.3
-)
-
-var (
-	objectiveColor = mgl32.Vec3{0.95, 0.80, 0.25}
-	stunnedColor   = mgl32.Vec3{0.30, 0.30, 0.35}
+	objectiveBob    = cellSize * 0.09
+	objectivePeriod = 2200 * time.Millisecond
 )
 
 // attendee is another player, or us. Positions are held as the cell we came
@@ -59,6 +56,7 @@ type client struct {
 	userID uint64
 
 	g         *grid.Grid
+	theme     *theme
 	atlas     *render.Atlas
 	tilesPath string
 	shapes    []*render.CompiledShape
@@ -123,10 +121,12 @@ func startClient(
 	idleDuration time.Duration,
 	sessionDuration time.Duration,
 	tilesPath string,
+	th *theme,
 ) error {
 
 	c := &client{
 		tilesPath:       tilesPath,
+		theme:           th,
 		con:             con,
 		userID:          welcome.ID,
 		g:               g,
@@ -185,13 +185,15 @@ func (c *client) allocFrameBuffer(w, h int) error {
 
 func (c *client) run() error {
 
-	ambientCol := mgl32.Vec3{0.75, 0.75, 0.75}
-
 	var err error
-	if c.renderer, err = render.NewRenderer(ambientCol); err != nil {
+	if c.renderer, err = render.NewRenderer(c.theme.ambient); err != nil {
 		return err
 	}
 	defer c.renderer.Delete()
+
+	// Fog and the clear colour are the same value, or the world fades into
+	// one colour and then meets a hard edge of another.
+	c.renderer.SetFog(c.theme.background, c.theme.fogFar)
 
 	sw, sh := c.screen.Size()
 	aspect, rw, rh := fitSize(sw*4, sh*8)
@@ -213,7 +215,7 @@ func (c *client) run() error {
 	}
 	defer c.objSphere.Delete()
 
-	if c.arrow, err = buildArrow(); err != nil {
+	if c.arrow, err = buildArrow(c.theme.arrow); err != nil {
 		return err
 	}
 	defer func() {
@@ -231,13 +233,13 @@ func (c *client) run() error {
 		}
 	}()
 
-	if c.atlas, err = loadAtlas(c.tilesPath); err != nil {
+	if c.atlas, err = loadAtlas(c.tilesPath, c.theme); err != nil {
 		return err
 	}
 	defer c.atlas.Delete()
 	c.renderer.SetAtlas(c.atlas)
 
-	if c.shapes, err = buildGridMesh(c.g, c.atlas); err != nil {
+	if c.shapes, err = buildGridMesh(c.g, c.atlas, c.theme); err != nil {
 		return err
 	}
 	defer func() {
@@ -317,7 +319,7 @@ func (c *client) applyState(state proto.State) {
 			c.attendees[p.ID] = &attendee{
 				from:    to,
 				to:      to,
-				col:     colorFor(p.ID),
+				col:     c.theme.playerColor(p.ID),
 				stunned: p.Stunned > 0,
 				casting: p.Casting > 0,
 			}
@@ -357,19 +359,6 @@ func (c *client) alpha() float32 {
 	a := float32(time.Since(c.tickAt)) / float32(c.tickDuration)
 	return mgl32.Clamp(a, 0, 1)
 }
-
-// colorFor gives each player a stable colour derived from their id, so the same
-// player looks the same to everyone.
-func colorFor(id uint64) mgl32.Vec3 {
-	rnd := rand.New(rand.NewSource(int64(id)))
-	r, g, b := gfx.RandomColor(rnd)
-	return mgl32.Vec3{
-		float32(r) / 255,
-		float32(g) / 255,
-		float32(b) / 255,
-	}
-}
-
 func (c *client) handleEvent(ev tcell.Event) {
 	switch ev := ev.(type) {
 	case *tcell.EventResize:
@@ -511,10 +500,10 @@ func (c *client) render() {
 		pos[2] += playerRadius
 		col := a.col
 		if id == c.userID {
-			col = col.Mul(1.4)
+			col = col.Mul(c.theme.selfBoost)
 		}
 		if a.stunned {
-			col = stunnedColor
+			col = c.theme.stunned
 		}
 		c.spheres = append(c.spheres, render.SpherePosition{Pos: pos, Col: col})
 	}
@@ -523,11 +512,13 @@ func (c *client) render() {
 	}
 
 	if len(c.objectives) > 0 {
+		bob := objectiveBob * (pulse(objectivePeriod) - 0.5) * 2
 		c.spheres = c.spheres[:0]
 		for _, pos := range c.objectives {
+			pos[2] += bob
 			c.spheres = append(c.spheres, render.SpherePosition{
 				Pos: pos,
-				Col: objectiveColor,
+				Col: c.theme.objective,
 			})
 		}
 		c.renderer.RenderSpheresMesh(view, c.objSphere, c.spheres)
@@ -571,13 +562,14 @@ func (c *client) matchClock() string {
 
 // drawTelegraphs marks the ground every in-flight burst is about to cover.
 func (c *client) drawTelegraphs(view mgl32.Mat4, alpha float32) {
+	col := telegraphColor(c.theme.telegraph, alpha)
 	for _, a := range c.attendees {
 		if !a.casting {
 			continue
 		}
-		model := telegraphTransform(a.at(alpha))
+		model := telegraphTransform(a.at(alpha), alpha)
 		for _, cs := range c.telegraph {
-			c.renderer.RenderShapeAt(view, model, cs, telegraphColor)
+			c.renderer.RenderShapeAt(view, model, cs, col)
 		}
 	}
 }
@@ -598,7 +590,7 @@ func (c *client) drawArrow(view mgl32.Mat4, alpha float32) {
 
 	model := arrowTransform(from, target)
 	for _, cs := range c.arrow {
-		c.renderer.RenderShapeAt(view, model, cs, arrowColor)
+		c.renderer.RenderShapeAt(view, model, cs, c.theme.arrow)
 	}
 }
 

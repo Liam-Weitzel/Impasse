@@ -16,10 +16,11 @@ uniform vec3 diffuseCol; // The light and object's combined diffuse color
 uniform sampler2D tiles;
 uniform bool textured;
 
+uniform vec3 fogColor;
+uniform float fogFar;
+
 const float invRadiusSq = 0.00001;
 const float fogNear = 0.0;
-const float fogFar = 1500.0;
-const vec4 fogColor = vec4(0.0, 0.0, 0.0, 1.0);
 
 // The base an untextured surface is lit from. Textured surfaces take it from
 // the atlas instead.
@@ -47,5 +48,5 @@ void main() {
 
     float fogAmount = smoothstep(fogNear, fogFar, fogDepth);
 
-    fragColor = mix(shaded, fogColor, fogAmount);
+    fragColor = mix(shaded, vec4(fogColor, 1.0), fogAmount);
 }

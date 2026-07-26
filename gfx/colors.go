@@ -1,10 +1,5 @@
 package gfx
 
-import (
-	"math"
-	"math/rand"
-)
-
 func HSLToRGB(h, s, l float64) (float64, float64, float64) {
 
 	h /= 360
@@ -49,17 +44,4 @@ func HueToRGB(v1, v2, h float64) float64 {
 		return v1 + (v2-v1)*((2.0/3.0)-h)*6
 	}
 	return v1
-}
-
-func RandomColor(rnd *rand.Rand) (int, int, int) {
-
-	h := float64(rnd.Intn(360))
-	s := float64(rnd.Intn(98-42) + 42)
-	l := float64(rnd.Intn(90-40) + 40)
-
-	r, g, b := HSLToRGB(h, s, l)
-
-	return int(math.Min(math.Round(r*256), 255)),
-		int(math.Min(math.Round(g*256), 255)),
-		int(math.Min(math.Round(b*256), 255))
 }
