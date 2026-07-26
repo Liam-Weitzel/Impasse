@@ -1,0 +1,213 @@
+package grid
+
+import (
+	"strings"
+	"testing"
+)
+
+func mustParse(t *testing.T, s string) *Grid {
+	t.Helper()
+	g, err := Parse(strings.NewReader(s))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	return g
+}
+
+func TestParse(t *testing.T) {
+	g := mustParse(t, "###\n#.#\n###")
+
+	if g.Width() != 3 || g.Height() != 3 {
+		t.Fatalf("got %dx%d, want 3x3", g.Width(), g.Height())
+	}
+	if !g.Walkable(Pos{1, 1}) {
+		t.Error("centre should be walkable")
+	}
+	if g.Walkable(Pos{0, 0}) {
+		t.Error("corner should be wall")
+	}
+}
+
+func TestParseRaggedRowsPadWithWall(t *testing.T) {
+	g := mustParse(t, "####\n#.\n####")
+
+	if g.Width() != 4 {
+		t.Fatalf("width %d, want 4", g.Width())
+	}
+	if g.Walkable(Pos{3, 1}) {
+		t.Error("padded cell should be wall")
+	}
+}
+
+func TestParseRejectsUnknownCharacter(t *testing.T) {
+	if _, err := Parse(strings.NewReader("##\n#X")); err == nil {
+		t.Fatal("want error for unknown character")
+	}
+}
+
+func TestParseRejectsEmpty(t *testing.T) {
+	if _, err := Parse(strings.NewReader("")); err == nil {
+		t.Fatal("want error for empty map")
+	}
+}
+
+func TestOutOfBoundsReadsAsWall(t *testing.T) {
+	g := mustParse(t, "..\n..")
+
+	for _, p := range []Pos{{-1, 0}, {0, -1}, {2, 0}, {0, 2}} {
+		if g.Walkable(p) {
+			t.Errorf("%v should not be walkable", p)
+		}
+	}
+}
+
+func TestMoveIntoWallIsRefused(t *testing.T) {
+	g := mustParse(t, "###\n#.#\n###")
+
+	for _, d := range []Direction{North, East, South, West} {
+		got, ok := g.Move(Pos{1, 1}, d)
+		if ok {
+			t.Errorf("%v: move should be refused", d)
+		}
+		if got != (Pos{1, 1}) {
+			t.Errorf("%v: position moved to %v on a refused move", d, got)
+		}
+	}
+}
+
+// A diagonal is only legal when both adjoining orthogonal cells are open,
+// otherwise a player would cut the corner and clip through the geometry.
+func TestDiagonalCornerCutting(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		m    string
+		want bool
+	}{
+		{
+			// Both orthogonal neighbours open.
+			name: "open",
+			m: "" +
+				"...\n" +
+				"...\n" +
+				"...",
+			want: true,
+		},
+		{
+			// North blocked, so the NE diagonal cuts a corner.
+			name: "one side blocked",
+			m: "" +
+				".#.\n" +
+				"...\n" +
+				"...",
+			want: false,
+		},
+		{
+			// East blocked.
+			name: "other side blocked",
+			m: "" +
+				"...\n" +
+				"..#\n" +
+				"...",
+			want: false,
+		},
+		{
+			name: "both sides blocked",
+			m: "" +
+				".#.\n" +
+				"..#\n" +
+				"...",
+			want: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := mustParse(t, tc.m)
+
+			// Move north east out of the centre.
+			_, ok := g.Move(Pos{1, 1}, NorthEast)
+			if ok != tc.want {
+				t.Fatalf("legal = %v, want %v", ok, tc.want)
+			}
+		})
+	}
+}
+
+func TestDiagonalTargetWallIsRefusedEvenWithOpenSides(t *testing.T) {
+	g := mustParse(t, "..#\n...\n...")
+
+	if _, ok := g.Move(Pos{1, 1}, NorthEast); ok {
+		t.Fatal("move onto a wall should be refused")
+	}
+}
+
+func TestMoveNoneStaysPut(t *testing.T) {
+	g := mustParse(t, "...\n...\n...")
+
+	got, ok := g.Move(Pos{1, 1}, None)
+	if !ok || got != (Pos{1, 1}) {
+		t.Fatalf("got %v %v, want {1 1} true", got, ok)
+	}
+}
+
+func TestKeyMapping(t *testing.T) {
+	want := map[rune]Direction{
+		'q': NorthWest, 'w': North, 'e': NorthEast,
+		'a': West, 'd': East,
+		'z': SouthWest, 'x': South, 'c': SouthEast,
+	}
+	for k, d := range want {
+		if got := DirectionForKey(k); got != d {
+			t.Errorf("key %q: got %v, want %v", k, got, d)
+		}
+	}
+	if got := DirectionForKey('s'); got != None {
+		t.Errorf("key 's': got %v, want none", got)
+	}
+}
+
+// Every key must move exactly one cell, so a full lap of the keys walks a ring
+// around the start and returns to it.
+func TestEveryDirectionMovesOneCell(t *testing.T) {
+	g := mustParse(t, "...\n...\n...")
+	start := Pos{1, 1}
+
+	for k, d := range keys {
+		got, ok := g.Move(start, d)
+		if !ok {
+			t.Fatalf("key %q: refused on open ground", k)
+		}
+		dx, dy := got.X-start.X, got.Y-start.Y
+		if dx < -1 || dx > 1 || dy < -1 || dy > 1 || (dx == 0 && dy == 0) {
+			t.Errorf("key %q: moved by (%d,%d)", k, dx, dy)
+		}
+	}
+}
+
+func TestDirectionRoundTrip(t *testing.T) {
+	for _, d := range []Direction{
+		None, North, NorthEast, East, SouthEast, South, SouthWest, West, NorthWest,
+	} {
+		got, ok := ParseDirection(d.String())
+		if !ok || got != d {
+			t.Errorf("%v round tripped to %v %v", d, got, ok)
+		}
+	}
+	if _, ok := ParseDirection("nonsense"); ok {
+		t.Error("nonsense should not parse")
+	}
+}
+
+func TestSpawns(t *testing.T) {
+	g := mustParse(t, "###\n#.#\n#.#")
+
+	got := g.Spawns()
+	want := []Pos{{1, 1}, {1, 2}}
+
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}

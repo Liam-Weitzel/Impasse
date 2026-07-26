@@ -30,6 +30,9 @@ type State struct {
 
 	lastCull    uint32
 	lastTexture uint32
+
+	textureOn    bool
+	textureKnown bool
 }
 
 type Renderer struct {
@@ -107,7 +110,6 @@ func (r *Renderer) RenderShapes(c *Camera, css []*CompiledShape) {
 	gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
 	gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
 	gl.UniformMatrix4fv(r.state.projMatLoc, 1, false, &r.ProjMat[0])
-	gl.Uniform1i(r.state.useTextureLoc, 1)
 
 	// Head light
 	gl.Uniform3fv(r.state.lightPosLoc, 1, &c.Position[0])
@@ -141,7 +143,7 @@ func (r *Renderer) RenderSpheres(c *Camera, sp *Sphere, positions []SpherePostio
 
 	diff := mgl32.Vec3{0.5, 0.5, 0.5}
 	gl.Uniform3fv(r.state.diffuseColLoc, 1, &diff[0])
-	gl.Uniform1i(r.state.useTextureLoc, 0)
+	r.state.useTexture(false)
 
 	for i := range positions {
 		vm := rot.Mul4(viewMat).Mul4(
@@ -188,6 +190,22 @@ func (s *State) cullCCW(ccw bool) {
 		s.lastCull = value
 		gl.FrontFace(value)
 	}
+}
+
+// useTexture flips the shader between sampling a texture and using a flat
+// colour. Grid geometry is untextured, X3D shapes are not.
+func (s *State) useTexture(on bool) {
+	if s.textureKnown && s.textureOn == on {
+		return
+	}
+	s.textureKnown = true
+	s.textureOn = on
+
+	var v int32
+	if on {
+		v = 1
+	}
+	gl.Uniform1i(s.useTextureLoc, v)
 }
 
 func (s *State) bindTexture(texture uint32) {

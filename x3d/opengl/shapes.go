@@ -18,6 +18,7 @@ type CompiledShape struct {
 	diffuseColor mgl32.Vec3
 	nIndices     int32
 	ccw          bool
+	textured     bool
 }
 
 type ShapeCompiler struct {
@@ -122,16 +123,25 @@ func (sc *ShapeCompiler) Compile(s *x3d.Shape) (*CompiledShape, error) {
 		diffuseColor: s.Appearance.DiffuseColor,
 		nIndices:     int32(len(indices)),
 		ccw:          s.Geometry.CCW,
+		textured:     true,
 	}
 
 	return cs, nil
+}
+
+func (cs *CompiledShape) Delete() {
+	gl.DeleteBuffers(1, &cs.ibo)
+	gl.DeleteBuffers(1, &cs.vbo)
 }
 
 func (cs *CompiledShape) Render(s *State) {
 	s.cullCCW(cs.ccw)
 	bindVBO(cs.vbo)
 	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, cs.ibo)
-	s.bindTexture(cs.texture)
+	s.useTexture(cs.textured)
+	if cs.textured {
+		s.bindTexture(cs.texture)
+	}
 	gl.Uniform3fv(s.diffuseColLoc, 1, &cs.diffuseColor[0])
 	gl.DrawElements(gl.TRIANGLE_FAN, cs.nIndices, gl.UNSIGNED_SHORT, unsafe.Pointer(nil))
 }
