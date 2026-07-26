@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"testing"
 	"time"
 
@@ -107,4 +109,64 @@ func TestWinWatchDoesNotBlockCaller(t *testing.T) {
 	}
 
 	close(release)
+}
+
+// Keystrokes go to the current owner only. Two readers on one session would
+// each take about half of them, so the player's typing would half disappear as
+// they moved between the menu and the game.
+func TestSessionInputGoesToCurrentOwnerOnly(t *testing.T) {
+	var si sessionInput
+
+	var menu, game bytes.Buffer
+
+	si.to(&menu)
+	if _, err := si.Write([]byte("play")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	si.to(&game)
+	if _, err := si.Write([]byte("wasd")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if menu.String() != "play" {
+		t.Errorf("menu got %q, want %q", menu.String(), "play")
+	}
+	if game.String() != "wasd" {
+		t.Errorf("game got %q, want %q", game.String(), "wasd")
+	}
+}
+
+// With nobody watching, input is dropped rather than blocking or failing. It
+// was typed at a screen that has gone.
+func TestSessionInputWithNoOwnerIsDropped(t *testing.T) {
+	var si sessionInput
+
+	n, err := si.Write([]byte("hello"))
+	if err != nil || n != 5 {
+		t.Fatalf("write with no owner: n %d err %v", n, err)
+	}
+}
+
+// A renderer exiting closes its pty while a keystroke may be in flight. That
+// must not stop the session's one copy, or the player loses input for good.
+func TestSessionInputSurvivesAFailingOwner(t *testing.T) {
+	var si sessionInput
+
+	pr, pw := io.Pipe()
+	pr.Close() // every write to pw now fails
+
+	si.to(pw)
+	if n, err := si.Write([]byte("lost")); err != nil || n != 4 {
+		t.Fatalf("write to a dead owner: n %d err %v", n, err)
+	}
+
+	var next bytes.Buffer
+	si.to(&next)
+	if _, err := si.Write([]byte("kept")); err != nil {
+		t.Fatalf("write after a dead owner: %v", err)
+	}
+	if next.String() != "kept" {
+		t.Errorf("got %q, want the next owner still receiving", next.String())
+	}
 }

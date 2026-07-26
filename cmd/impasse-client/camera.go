@@ -21,8 +21,13 @@ const (
 	maxYaw  = 30 * math.Pi / 180
 	yawStep = 5 * math.Pi / 180
 
+	// Zooming out stops well inside the fog. Fog is a smoothstep out to
+	// fogFar, which is 760 units, so by ten cells the picture is already more
+	// than nine tenths fog colour and there is nothing left to make out. The
+	// camera used to be allowed past fogFar entirely, which is why it went
+	// dark rather than wide.
 	minZoom  = 4 * cellSize
-	maxZoom  = 16 * cellSize
+	maxZoom  = 10 * cellSize
 	zoomStep = cellSize
 )
 

@@ -150,3 +150,28 @@ func TestCameraStaysUsableAtMaxPitch(t *testing.T) {
 		t.Errorf("north at screen y %.3f, want above centre even looking down", y)
 	}
 }
+
+// Zooming out has to stop inside the fog. Fog is a smoothstep out to fogFar, so
+// a camera allowed past it looks at a screen of solid fog colour, which is what
+// zooming out used to do.
+func TestZoomStaysInsideTheFog(t *testing.T) {
+	if maxZoom >= fogFar {
+		t.Fatalf("maxZoom %v is at or past fogFar %v, so the far end is solid fog",
+			float32(maxZoom), float32(fogFar))
+	}
+
+	c := newCamera()
+	for i := 0; i < 100; i++ {
+		c.zoomOut()
+	}
+	if c.dist > maxZoom {
+		t.Errorf("zoomed out to %v, past the %v cap", c.dist, float32(maxZoom))
+	}
+
+	for i := 0; i < 100; i++ {
+		c.zoomIn()
+	}
+	if c.dist < minZoom {
+		t.Errorf("zoomed in to %v, past the %v floor", c.dist, float32(minZoom))
+	}
+}

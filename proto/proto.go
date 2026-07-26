@@ -21,6 +21,14 @@ const (
 	TypeError   = "error"
 )
 
+// ExitToMenu is the status the renderer exits with when the player pressed
+// escape to go back to the menu, rather than to end the session. Any other
+// status ends the session.
+//
+// The renderer is a separate process, so its exit status is the only thing the
+// SSH server sees of how it finished.
+const ExitToMenu = 10
+
 // Auth is the first message every client sends, before anything else. The
 // server replies with a welcome, or an error and a closed connection.
 //

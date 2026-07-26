@@ -26,7 +26,7 @@ func testMenu(t *testing.T) (menuModel, *server, *account) {
 	renderer := lipgloss.NewRenderer(&strings.Builder{},
 		termenv.WithProfile(termenv.Ascii))
 
-	return newMenuModel(srv, "SHA256:test", acc, ":2223", renderer), srv, acc
+	return newMenuModel(srv, "SHA256:test", acc, ":2223", "impasse.example", renderer), srv, acc
 }
 
 // press sends a key and returns the updated model.
@@ -355,5 +355,42 @@ func TestTruncate(t *testing.T) {
 	}
 	if got := truncate("averylongnamehere", 8); len(got) != 8 {
 		t.Errorf("got %q, want 8 characters", got)
+	}
+}
+
+// bubbletea folds runes arriving in one read into a single message, so typing
+// quickly or pasting produces one KeyMsg holding several runes. Before this was
+// handled, "jj" moved the cursor nowhere at all and the keys were lost.
+func TestMenuHandlesRunesArrivingTogether(t *testing.T) {
+	m, _, _ := testMenu(t)
+
+	burst := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("jj")}
+	updated, _ := m.Update(burst)
+
+	got, ok := updated.(menuModel)
+	if !ok {
+		t.Fatalf("got %T, want a menuModel", updated)
+	}
+	if got.cursor != 2 {
+		t.Errorf("cursor at %d, want 2: a two rune burst must move twice", got.cursor)
+	}
+}
+
+// The same burst typed into the name field has to land as text, not be split
+// into menu commands.
+func TestMenuNameFieldTakesRunesArrivingTogether(t *testing.T) {
+	m, _, _ := testMenu(t)
+	m.pane = paneName
+	m.name.Focus()
+	m.name.SetValue("")
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("abc")})
+
+	got, ok := updated.(menuModel)
+	if !ok {
+		t.Fatalf("got %T, want a menuModel", updated)
+	}
+	if got.name.Value() != "abc" {
+		t.Errorf("name is %q, want %q", got.name.Value(), "abc")
 	}
 }

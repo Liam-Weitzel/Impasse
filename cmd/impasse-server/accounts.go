@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"log"
+	"net"
 	"sync"
 
 	"github.com/gliderlabs/ssh"
@@ -239,16 +240,47 @@ func (a *accounts) player(acc *account) (uint64, bool) {
 	return acc.playerID, acc.attached
 }
 
-// tokenBanner is what the player sees when they run the token command.
-func tokenBanner(token, botAddr string) string {
+// botCommand is the line a player runs to start a bot, with their own token
+// already in it. A command that has to be edited before it works is a command
+// people get wrong, and the token is not a secret from the person it belongs
+// to.
+//
+// host is the address the player reached this server on. A bot address of
+// ":2223" says which port to dial but not which machine, so the host fills that
+// in and the line can be pasted as it stands.
+func botCommand(token, botAddr, host string) string {
 	address := botAddr
-	if address == "" {
-		address = "the bot API is disabled on this server"
+
+	if h, port, err := net.SplitHostPort(botAddr); err == nil && h == "" && host != "" {
+		address = net.JoinHostPort(host, port)
+	}
+
+	return "python3 examples/bot.py --address " + address + " --token " + token
+}
+
+// hostOf pulls the host out of an address, for filling in a bot command.
+func hostOf(a net.Addr) string {
+	if a == nil {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(a.String())
+	if err != nil {
+		return ""
+	}
+	return host
+}
+
+// tokenBanner is what the player sees when they run the token command.
+func tokenBanner(token, botAddr, host string) string {
+	if botAddr == "" {
+		return "" +
+			"Your bot token:\n\n  " + token + "\n\n" +
+			"The bot API is switched off on this server.\n"
 	}
 	return "" +
 		"Your bot token:\n\n  " + token + "\n\n" +
 		"Bots authenticate with it and drive the same character you do, so you\n" +
 		"can watch and take over. Whichever queues an action last before the\n" +
 		"tick locks is the one that runs.\n\n" +
-		"  python3 examples/bot.py --address " + address + " --token <token>\n"
+		"  " + botCommand(token, botAddr, host) + "\n"
 }

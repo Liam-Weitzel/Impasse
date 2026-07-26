@@ -8,6 +8,7 @@ import (
 	"runtime"
 
 	"github.com/Liam-Weitzel/Impasse/gfx"
+	"github.com/Liam-Weitzel/Impasse/proto"
 	"github.com/gdamore/tcell/v2"
 	"github.com/veandco/go-sdl2/sdl"
 )
@@ -72,6 +73,8 @@ func main() {
 	connection, token, err := connectionParams()
 	check(err)
 
+	var toMenu bool
+
 	run := func() error {
 		con, err := dial(connection)
 		if err != nil {
@@ -88,16 +91,24 @@ func main() {
 
 		return gfx.WrapScreen(func(screen tcell.Screen) error {
 			return gfx.WrapWindow(func(window *sdl.Window) error {
-				return startClient(
+				var err error
+				toMenu, err = startClient(
 					con, welcome, g,
 					screen, window,
 					(*idleDuration).Abs(),
 					(*sessionDuration).Abs(),
 					*tiles,
 				)
+				return err
 			})
 		})
 	}
 
 	check(logWrap(*logFile, run))
+
+	// The SSH server spawned this process and only sees how it finished, so
+	// the exit status is what tells it to put the menu back up.
+	if toMenu {
+		os.Exit(proto.ExitToMenu)
+	}
 }

@@ -170,6 +170,11 @@ Movement is four way on `WASD` and world locked, so `W` is always north whatever
 camera is doing. There are no diagonals, so distance is Manhattan and cells touching
 only at a corner are not connected.
 
+`Space` loots, `E` stuns, the arrow keys move the camera and `+`/`-` zoom. `Esc` goes
+back to the menu without dropping the connection, and `Ctrl-C` ends the session. Zooming
+out stops before the camera reaches the fog distance, past which there is nothing to see
+anyway.
+
 The server runs a 600ms tick. Clients queue one action, queuing again before the tick
 locks replaces it, and every queued action resolves at once when the tick fires. The
 client interpolates between the last two ticks so movement looks smooth, but nothing

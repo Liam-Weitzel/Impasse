@@ -92,6 +92,9 @@ type menuModel struct {
 	// successful sign in so the next session here skips it.
 	fingerprint string
 	botAddr     string
+	// host is the address this player reached the server on, used to make the
+	// bot command something they can paste.
+	host string
 
 	styles menuStyles
 	width  int
@@ -118,7 +121,7 @@ type menuModel struct {
 	signInErr string
 }
 
-func newMenuModel(s *server, fingerprint string, acc *account, botAddr string, renderer *lipgloss.Renderer) menuModel {
+func newMenuModel(s *server, fingerprint string, acc *account, botAddr, host string, renderer *lipgloss.Renderer) menuModel {
 	input := textinput.New()
 	input.CharLimit = maxNameLength
 	input.Prompt = "> "
@@ -129,6 +132,7 @@ func newMenuModel(s *server, fingerprint string, acc *account, botAddr string, r
 		acc:         acc,
 		fingerprint: fingerprint,
 		botAddr:     botAddr,
+		host:        host,
 		styles:      newMenuStyles(renderer),
 		name:        input,
 		tickMS:      int(s.world.tickDuration / time.Millisecond),
@@ -252,6 +256,27 @@ func (m menuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// bubbletea folds runes that turn up in one read into a single message,
+		// so typing quickly or pasting arrives as one KeyMsg holding several
+		// runes. Its String is then "jj" rather than "j", which matches nothing
+		// and the keys are silently dropped. Feed them through one at a time.
+		if msg.Type == tea.KeyRunes && len(msg.Runes) > 1 {
+			var (
+				model tea.Model = m
+				cmds  []tea.Cmd
+			)
+			for _, r := range msg.Runes {
+				var cmd tea.Cmd
+				model, cmd = model.Update(tea.KeyMsg{
+					Type:  tea.KeyRunes,
+					Runes: []rune{r},
+					Alt:   msg.Alt,
+				})
+				cmds = append(cmds, cmd)
+			}
+			return model, tea.Batch(cmds...)
+		}
+
 		if m.pane == paneSignIn {
 			return m.updateSignIn(msg)
 		}
@@ -564,7 +589,7 @@ func (m menuModel) viewPlayers() string {
 
 func (m menuModel) viewName() string {
 	return m.styles.item.Render("Display name, shown on the leaderboard.") + "\n" +
-		m.styles.dim.Render("Your account is your SSH key, so renaming changes nothing else.") +
+		m.styles.dim.Render("Your account is your GitHub account, so renaming changes nothing else.") +
 		"\n\n" + m.name.View()
 }
 
@@ -584,13 +609,15 @@ func (m menuModel) viewToken() string {
 	b.WriteString("\n\n  ")
 	b.WriteString(m.styles.token.Render(token))
 	b.WriteString("\n\n")
-	b.WriteString(m.styles.item.Render(
-		"python3 examples/bot.py --address " + address + " --token <token>"))
+	b.WriteString(m.styles.item.Render("Run a bot:"))
+	b.WriteString("\n\n  ")
+	// The real token, not a placeholder, so the line can be pasted as it is.
+	b.WriteString(m.styles.token.Render(botCommand(token, address, m.host)))
 	b.WriteString("\n\n")
 	b.WriteString(m.styles.dim.Render(
 		"Your bot drives the same character you do, so you can watch it play and\n" +
 			"take over. Whichever queues an action last before the tick locks wins.\n" +
-			"The token lasts until the server restarts."))
+			"The token is yours until you ask for a new one."))
 
 	return b.String()
 }

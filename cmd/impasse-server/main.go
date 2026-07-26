@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/Liam-Weitzel/Impasse/proto"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/creack/pty"
@@ -153,6 +154,40 @@ func (w *winWatch) watch(fn func(ssh.Window)) {
 	}
 }
 
+// sessionInput reads the session's keystrokes once and passes them to whatever
+// currently owns the terminal.
+//
+// A session is read by the menu and then by the renderer, over and over as the
+// player goes back and forth. Letting each read the session directly means two
+// readers at once, and every keystroke goes to exactly one of them, so half the
+// player's typing disappears. Same problem as winWatch, same shape of fix.
+type sessionInput struct {
+	mu   sync.Mutex
+	sink io.Writer
+}
+
+// to makes w the current owner. Nil means nobody is reading, and keystrokes
+// are dropped rather than queued: they were typed at a screen that is gone.
+func (si *sessionInput) to(w io.Writer) {
+	si.mu.Lock()
+	si.sink = w
+	si.mu.Unlock()
+}
+
+// Write never reports an error, so the single copy from the session survives an
+// owner going away. A renderer exiting closes its pty while a keystroke is in
+// flight, and that must not tear down input for the rest of the session.
+func (si *sessionInput) Write(p []byte) (int, error) {
+	si.mu.Lock()
+	w := si.sink
+	si.mu.Unlock()
+
+	if w != nil {
+		w.Write(p)
+	}
+	return len(p), nil
+}
+
 // runMenu shows the pre-game menu and reports whether the player chose to play.
 // runMenu shows the pre-game menu and returns the account to play as, or nil
 // if the player quit or never signed in.
@@ -162,6 +197,7 @@ func (h *handler) runMenu(
 	acc *account,
 	ptyReq ssh.Pty,
 	wins *winWatch,
+	input *sessionInput,
 ) *account {
 	// Over SSH there is no local terminal to probe, so the colour profile
 	// comes from what the client told us.
@@ -169,11 +205,22 @@ func (h *handler) runMenu(
 		termenv.WithProfile(colorProfile(ptyReq.Term, s.Environ())),
 		termenv.WithColorCache(true))
 
-	model := newMenuModel(h.server, fingerprint, acc, h.botAddr, renderer)
+	model := newMenuModel(h.server, fingerprint, acc, h.botAddr, hostOf(s.LocalAddr()), renderer)
 	model.width, model.height = ptyReq.Window.Width, ptyReq.Window.Height
 
+	// Input arrives through the session's one reader rather than from the
+	// session directly, so the menu and the renderer are never reading it at
+	// the same time. Closing the write end when the menu is done releases
+	// bubbletea's reader.
+	keys, typed := io.Pipe()
+	input.to(typed)
+	defer func() {
+		input.to(nil)
+		typed.Close()
+	}()
+
 	program := tea.NewProgram(model,
-		tea.WithInput(s),
+		tea.WithInput(keys),
 		tea.WithOutput(s),
 		tea.WithAltScreen(),
 		// The session already handles its own signals, and bubbletea
@@ -220,7 +267,8 @@ func (h *handler) sshHandle(s ssh.Session) {
 				"Sign in with GitHub first: ssh into this server without a command.\n")
 			return
 		}
-		io.WriteString(s, tokenBanner(h.server.accounts.botToken(acc), h.botAddr))
+		io.WriteString(s, tokenBanner(h.server.accounts.botToken(acc), h.botAddr,
+			hostOf(s.LocalAddr())))
 		return
 	}
 
@@ -241,15 +289,38 @@ func (h *handler) sshHandle(s ssh.Session) {
 	// renderer.
 	wins := newWinWatch(ptyReq.Window, winCh)
 
-	// The menu runs here in the server, because it needs the store and the
-	// live world. It also owns signing in, so it is what turns a session into
-	// a player. The renderer is a separate process and only gets spawned once
-	// the player has actually chosen to play.
-	acc = h.runMenu(s, fp, acc, ptyReq, wins)
-	if acc == nil {
-		return
-	}
+	// One reader for the session's keystrokes, for the same reason.
+	input := &sessionInput{}
+	go io.Copy(input, s)
 
+	// Menu, play, menu again. Escape in the game comes back here rather than
+	// dropping the connection, so a player can check the leaderboard or change
+	// their name without reconnecting.
+	for {
+		// The menu runs here in the server, because it needs the store and the
+		// live world. It also owns signing in, so it is what turns a session
+		// into a player. The renderer is a separate process and only gets
+		// spawned once the player has actually chosen to play.
+		acc = h.runMenu(s, fp, acc, ptyReq, wins, input)
+		if acc == nil {
+			return
+		}
+
+		if !h.play(s, acc, ptyReq, wins, input) {
+			return
+		}
+	}
+}
+
+// play spawns the renderer and runs it until it exits. It reports whether the
+// player asked to go back to the menu, as opposed to ending the session.
+func (h *handler) play(
+	s ssh.Session,
+	acc *account,
+	ptyReq ssh.Pty,
+	wins *winWatch,
+	input *sessionInput,
+) bool {
 	cmdCtx, cancelCmd := context.WithCancel(s.Context())
 	defer cancelCmd()
 
@@ -262,8 +333,9 @@ func (h *handler) sshHandle(s ssh.Session) {
 	cmd.Env = append(os.Environ(), s.Environ()...)
 
 	// The renderer is a separate process and cannot present the player's key
-	// itself, so it gets a one shot token instead. The player id comes back
-	// in the welcome message.
+	// itself, so it gets a one shot token instead. A fresh one every time,
+	// since redeeming spends it. The player id comes back in the welcome
+	// message.
 	cmd.Env = append(cmd.Env,
 		fmt.Sprintf("TERM=%s", ptyReq.Term),
 		fmt.Sprintf("IMPASSE_CONNECTION=%s", h.server.connection()),
@@ -278,7 +350,7 @@ func (h *handler) sshHandle(s ssh.Session) {
 	if err != nil {
 		io.WriteString(s, fmt.Sprintf("failed to initialize pseudo-terminal: %s\n", err))
 		s.Exit(1)
-		return
+		return false
 	}
 	defer f.Close()
 
@@ -287,14 +359,22 @@ func (h *handler) sshHandle(s ssh.Session) {
 	wins.watch(func(win ssh.Window) {
 		setWinsize(f, win.Width, win.Height)
 	})
+	input.to(f)
 
-	go func() {
-		io.Copy(f, s)
-	}()
+	// Returns when the renderer closes its side of the pty, which is how the
+	// session learns it has finished drawing.
 	io.Copy(s, f)
 
+	wins.watch(nil)
+	input.to(nil)
+
 	f.Close()
-	cmd.Wait()
+	err = cmd.Wait()
+
+	// The renderer is a separate process, so its exit status is all there is
+	// to go on. Anything but the one code means the session is over.
+	var exit *exec.ExitError
+	return errors.As(err, &exit) && exit.ExitCode() == proto.ExitToMenu
 }
 
 // resolveClientID picks the GitHub client id out of a flag, a file or the

@@ -118,12 +118,17 @@ type client struct {
 	termDuration       time.Duration
 
 	quit bool
+	// toMenu is set when the player asked for the menu rather than to leave.
+	// The session stays up and the server shows the menu again.
+	toMenu bool
 
 	idleDuration    time.Duration
 	sessionDuration time.Duration
 	lastAction      time.Time
 }
 
+// startClient runs the renderer until the player leaves. It reports whether
+// they asked for the menu, in which case the session stays up.
 func startClient(
 	con *connection,
 	welcome *proto.Welcome,
@@ -132,7 +137,7 @@ func startClient(
 	idleDuration time.Duration,
 	sessionDuration time.Duration,
 	tilesPath string,
-) error {
+) (toMenu bool, err error) {
 
 	c := &client{
 		tilesPath:       tilesPath,
@@ -155,11 +160,12 @@ func startClient(
 	}
 
 	if err := c.setupOpenGL(); err != nil {
-		return err
+		return false, err
 	}
 	defer c.tearDownOpenGL()
 
-	return c.run()
+	err = c.run()
+	return c.toMenu, err
 }
 
 func (c *client) setupOpenGL() error {
@@ -375,7 +381,11 @@ func (c *client) handleEvent(ev tcell.Event) {
 
 	case *tcell.EventKey:
 		switch ev.Key() {
-		case tcell.KeyEsc, tcell.KeyCtrlC:
+		case tcell.KeyEsc:
+			// Back to the menu, not out of the session.
+			c.toMenu = true
+			c.quit = true
+		case tcell.KeyCtrlC:
 			c.quit = true
 		case tcell.KeyUp:
 			c.camera.pitchUp()
@@ -444,7 +454,7 @@ func (c *client) drawHUD() {
 		Foreground(tcell.ColorYellow)
 
 	gfx.WriteString(c.screen, 0, 0,
-		"ESC: Quit|WASD: Move|Space: Loot|E: Stun|Arrows: Camera|+/-: Zoom",
+		"ESC: Menu|WASD: Move|Space: Loot|E: Stun|Arrows: Camera|+/-: Zoom",
 		st)
 
 	width, height := c.screen.Size()
