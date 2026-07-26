@@ -22,6 +22,33 @@ type handler struct {
 	args     []string
 	maxCons  int
 	server   *server
+	botAddr  string
+}
+
+// contextKeyAccount is where the public key handler stashes the account so the
+// session handler can pick it up.
+const contextKeyAccount = "impasse-account"
+
+// authenticate accepts any public key and treats it as an account. There is no
+// registration and no password. A key the server has not seen becomes a new
+// account on the spot.
+//
+// Anyone can generate more keys, so this does not make multi accounting
+// impossible. What it does is make one key mean exactly one character, which is
+// the property the game needs. Anything stronger is a launch problem.
+func (h *handler) authenticate(ctx ssh.Context, key ssh.PublicKey) bool {
+	acc := h.server.accounts.forKey(key)
+
+	// Give the account a stored row the first time its key is seen, so it has
+	// a name to show and something for results to land on.
+	if h.server.store != nil {
+		if _, err := h.server.store.Ensure(acc.fingerprint); err != nil {
+			log.Printf("ensuring account %s: %v\n", acc.fingerprint, err)
+		}
+	}
+
+	ctx.SetValue(contextKeyAccount, acc)
+	return true
 }
 
 func setWinsize(f *os.File, w, h int) {
@@ -30,6 +57,20 @@ func setWinsize(f *os.File, w, h int) {
 }
 
 func (h *handler) sshHandle(s ssh.Session) {
+
+	acc, _ := s.Context().Value(contextKeyAccount).(*account)
+	if acc == nil {
+		io.WriteString(s, "no account for this key\n")
+		s.Exit(1)
+		return
+	}
+
+	// `ssh <host> token` prints the bot token and exits, so the token never
+	// has to fight with the game for the screen.
+	if cmd := s.Command(); len(cmd) > 0 && cmd[0] == "token" {
+		io.WriteString(s, tokenBanner(h.server.accounts.botToken(acc), h.botAddr))
+		return
+	}
 
 	if h.maxCons > 0 && h.server.numConnections() >= h.maxCons {
 		fmt.Fprintf(s, "Max number of connections (%d) reached. Try again later.\n",
@@ -55,11 +96,13 @@ func (h *handler) sshHandle(s ssh.Session) {
 	// the GL/SDL library paths, then let the session env override it.
 	cmd.Env = append(os.Environ(), s.Environ()...)
 
-	// The player id is assigned when the renderer connects to the socket and
-	// arrives in the welcome message, so it is not passed here.
+	// The renderer is a separate process and cannot present the player's key
+	// itself, so it gets a one shot token instead. The player id comes back
+	// in the welcome message.
 	cmd.Env = append(cmd.Env,
 		fmt.Sprintf("TERM=%s", ptyReq.Term),
-		fmt.Sprintf("IMPASSE_CONNECTION=%s", h.server.connection()))
+		fmt.Sprintf("IMPASSE_CONNECTION=%s", h.server.connection()),
+		fmt.Sprintf("IMPASSE_TOKEN=%s", h.server.accounts.sessionToken(acc)))
 
 	f, err := pty.Start(cmd)
 	if err != nil {
@@ -100,6 +143,10 @@ func main() {
 		renderer   = flag.String("renderer", "impasse-client", "path to renderer")
 		mapFile    = flag.String("map", "maps/test.txt", "path to the ASCII map")
 		keyFile    = flag.String("key", "", "path to host key file")
+		dbFile     = flag.String("db", "impasse.db", "path to the score database")
+		matchLen   = flag.Duration("match", DefaultMatchDuration, "match length")
+		breakLen   = flag.Duration("intermission", DefaultIntermissionDuration,
+			"break between matches")
 	)
 
 	flag.Parse()
@@ -108,6 +155,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("loading map: %v\n", err)
 	}
+	w.matchDuration = *matchLen
+	w.intermissionDuration = *breakLen
+	w.phaseTicks = w.intermissionTicks()
+
 	log.Printf("map %s loaded: %dx%d, %d walkable cells, spawn at %v\n",
 		*mapFile, w.g.Width(), w.g.Height(), w.walkable, w.spawn)
 	if !w.hasMarker {
@@ -117,6 +168,14 @@ func main() {
 	if sealed := w.walkable - w.reachable; sealed > 0 {
 		log.Printf("warning: %d cells cannot be reached from the spawn\n", sealed)
 	}
+	log.Printf("matches last %s with a %s break\n", *matchLen, *breakLen)
+
+	db, err := openStore(*dbFile)
+	if err != nil {
+		log.Fatalf("opening score database: %v\n", err)
+	}
+	defer db.Close()
+	log.Printf("scores in %s\n", *dbFile)
 
 	addrs := []string{*connection}
 	if *botAddr != "" {
@@ -124,6 +183,7 @@ func main() {
 	}
 
 	cs := newServer(w, addrs...)
+	cs.store = db
 
 	done := make(chan struct{})
 
@@ -141,11 +201,13 @@ func main() {
 		args:     flag.Args(),
 		maxCons:  *maxCons,
 		server:   cs,
+		botAddr:  *botAddr,
 	}
 
 	s := &ssh.Server{
-		Addr:    fmt.Sprintf(":%d", *port),
-		Handler: h.sshHandle,
+		Addr:             fmt.Sprintf(":%d", *port),
+		Handler:          h.sshHandle,
+		PublicKeyHandler: h.authenticate,
 	}
 
 	if *keyFile != "" {

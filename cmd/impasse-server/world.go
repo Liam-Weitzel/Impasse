@@ -101,11 +101,20 @@ type world struct {
 	tick      uint64
 	nextID    uint64
 
+	// Round clock. See match.go.
+	phase       string
+	phaseTicks  int
+	matchNumber int
+
 	// tickDuration is how long a tick lasts. It lives here rather than being
 	// read straight from the constant so that the value the server ticks at
 	// and the value it tells clients can never drift apart, and so tests can
 	// run the loop fast.
 	tickDuration time.Duration
+
+	// How long a match and the break after it last.
+	matchDuration        time.Duration
+	intermissionDuration time.Duration
 }
 
 func loadWorld(path string) (*world, error) {
@@ -139,7 +148,7 @@ func loadWorld(path string) (*world, error) {
 		objectives[p] = true
 	}
 
-	return &world{
+	w := &world{
 		g:          g,
 		players:    make(map[uint64]*player),
 		objectives: objectives,
@@ -148,9 +157,18 @@ func loadWorld(path string) (*world, error) {
 		walkable:   len(g.Walkables()),
 		// What players can get to is defined by where they start, so
 		// measure from the spawn rather than from the largest region.
-		reachable:    len(g.Reachable(spawn)),
-		tickDuration: TickDuration,
-	}, nil
+		reachable:            len(g.Reachable(spawn)),
+		tickDuration:         TickDuration,
+		matchDuration:        DefaultMatchDuration,
+		intermissionDuration: DefaultIntermissionDuration,
+	}
+
+	// Open with a break, so anyone connecting as the server comes up gets a
+	// countdown rather than dropping into a match already underway.
+	w.phase = proto.PhaseIntermission
+	w.phaseTicks = w.intermissionTicks()
+
+	return w, nil
 }
 
 // join places a new player and returns it. Everyone starts on the same cell.
@@ -201,7 +219,10 @@ func (w *world) queueStun(id uint64) {
 //     and no player's action can depend on another's resolving first.
 //  3. Actions run.
 //  4. Pickups are awarded, so simultaneous finishers are seen together.
-func (w *world) resolve() {
+//  5. The round clock advances, which may end the match.
+//
+// The clock runs last so a pickup taken on the final tick still counts.
+func (w *world) resolve() []result {
 	w.tick++
 
 	w.landStuns()
@@ -237,7 +258,7 @@ func (w *world) resolve() {
 			}
 
 		case proto.ActionLoot:
-			if !w.objectives[p.pos] {
+			if w.phase != proto.PhaseRunning || !w.objectives[p.pos] {
 				// Nothing here, or someone already took it.
 				p.channel = 0
 				continue
@@ -279,6 +300,8 @@ func (w *world) resolve() {
 			p.channel = 0
 		}
 	}
+
+	return w.advanceMatch()
 }
 
 // landStuns applies the bursts due this tick. It runs before actions, so a
@@ -415,6 +438,7 @@ func (w *world) state() proto.State {
 	return proto.State{
 		Type:       proto.TypeState,
 		Tick:       w.tick,
+		Match:      w.matchState(),
 		Players:    players,
 		Objectives: objectives,
 	}

@@ -47,12 +47,16 @@ func logWrap(fname string, fn func() error) (err error) {
 	return
 }
 
-func connectionParam() (string, error) {
-	connection, ok := os.LookupEnv("IMPASSE_CONNECTION")
+func connectionParams() (address, token string, err error) {
+	address, ok := os.LookupEnv("IMPASSE_CONNECTION")
 	if !ok {
-		return "", errors.New("'IMPASSE_CONNECTION' is missing")
+		return "", "", errors.New("'IMPASSE_CONNECTION' is missing")
 	}
-	return connection, nil
+	token, ok = os.LookupEnv("IMPASSE_TOKEN")
+	if !ok {
+		return "", "", errors.New("'IMPASSE_TOKEN' is missing")
+	}
+	return address, token, nil
 }
 
 func main() {
@@ -63,7 +67,7 @@ func main() {
 	)
 	flag.Parse()
 
-	connection, err := connectionParam()
+	connection, token, err := connectionParams()
 	check(err)
 
 	run := func() error {
@@ -75,7 +79,7 @@ func main() {
 
 		// The map and our id come from the server, so this has to complete
 		// before there is anything to draw.
-		welcome, g, err := con.handshake()
+		welcome, g, err := con.handshake(token)
 		if err != nil {
 			return err
 		}

@@ -77,7 +77,32 @@ two or more finish together nobody takes it, and they sit there at a full channe
 one of them stops. The tick after that, the other collects. This is the standoff the
 game is named for.
 
-Collected pickups do not come back. Respawn is undesigned.
+### Matches
+
+The world runs in rounds. A match lasts two minutes, then there is a fifteen second
+break, then the next one starts. Both are configurable with `--match` and
+`--intermission`.
+
+At the start of a match every pickup is restored, every score resets, and everyone is
+put back on the spawn. That is the objective respawn rule: pickups come back when the
+match does. Between matches there is nothing to collect and nothing scores, but the
+scores from the match just finished stay up so you can see how it went.
+
+The clock is in every `state` message, so bots and human players both see the phase, the
+match number and how many ticks are left. How long is left is what decides whether a
+pickup across the map is worth starting for.
+
+Rounds also stop the standoff rule from wedging a session. Two players deadlocked over
+the last pickup only hold it until the clock runs out.
+
+### Scores
+
+Results go into SQLite, keyed by the account fingerprint. `best` is the high water mark
+for a single match and `total` accumulates, because ranking on total alone just measures
+who left their bot running longest. The leaderboard sorts on best, then total.
+
+Display names are cosmetic and changeable. The fingerprint is the identity underneath,
+so renaming yourself does not move anyone else's scores.
 
 ### Stun
 
@@ -132,8 +157,41 @@ direction, a loot, or a stun. Sending another before the tick locks replaces the
 Bots get raw cells, never a graph. Turning the map into something you can search is the
 bot author's job, and `examples/bot.py` shows the whole of it in about thirty lines.
 
-Neither transport has any authentication yet. Anyone who can reach the port can join.
-That is milestone 5.
+### Identity
+
+Your SSH public key is your account. There is no registration and no password. A key the
+server has not seen becomes an account on the spot.
+
+One account owns exactly one character. That is the anti multi accounting rule, and it
+is not the same as one connection per character.
+
+An account may hold **one terminal and one bot** at a time, and no more. Both drive the
+same character, and whichever queues an action last before the tick locks is the one
+that runs. That is what makes spectating your own bot, and taking over from it, possible
+at all. A second terminal is refused, because two terminals on one character would mean
+two cameras on it with no answer for which is the real view. A second bot is refused for
+the same reason it exists at all: one key, one player.
+
+Which kind a connection is comes from the token it presented, not from anything it
+claims. One shot tokens are minted only by the SSH server, so they are terminals. The
+long lived token is a bot.
+
+The character only leaves the world when the last connection driving it does, so
+closing the terminal does not kill your bot.
+
+Anyone can generate more keys, so this does not make multi accounting impossible. What
+it buys is that one key means exactly one character. Anything stronger is a launch
+problem, not a today problem.
+
+Every client authenticates before anything else, with a token:
+
+* Humans never type one. The SSH server mints a one shot token per session and hands it
+  to the renderer it spawns, which is why the renderer needs `IMPASSE_TOKEN` as well as
+  `IMPASSE_CONNECTION`. A separate process cannot present your key itself.
+* Bots use the long lived token from the account, printed by `ssh <host> token`. It
+  lasts until the server restarts, because nothing is persisted yet.
+
+A connection that does not authenticate first gets an `error` message and is hung up on.
 
 ### Rendering
 
@@ -204,17 +262,24 @@ almost never apply.
 The server warns at startup about cells that cannot be reached from the spawn, since
 that usually means a sealed off pocket rather than a deliberate choice.
 
+You need an SSH key, since that is your account. `ssh-keygen -t ed25519` if you have
+none.
+
 Connect as a human:
 
 ```sh
 ssh -p2222 localhost -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking=no"
 ```
 
-Or as a bot:
+Fetch your bot token, then run a bot:
 
 ```sh
-python3 examples/bot.py --address 127.0.0.1:2223
+ssh -p2222 localhost token
+python3 examples/bot.py --address 127.0.0.1:2223 --token <token>
 ```
+
+Do both at once and the SSH session is a spectator view of your own bot, on the same
+character. Your keys still work, so you can take over from it mid game.
 
 `examples/bot.py` walks to the nearest pickup and channels it. It is deliberately naive,
 and greedy nearest is a bad strategy, since everyone else is racing you to the same
@@ -327,9 +392,30 @@ Milestone 4, bot API:
   movement, walls, looting, two clients seeing each other, disconnect cleanup and
   malformed input. Both transports.
 
+Milestone 5, identity:
+
+* SSH public key is the account. No registration, no password.
+* One account, one character. One terminal and one bot may drive it, which is what
+  makes spectating your own bot work. Any more of either is refused.
+* Token handshake on the protocol. One shot tokens for renderers, long lived ones for
+  bots via `ssh <host> token`.
+* The character leaves only when the last connection driving it does.
+
+Matches and scores:
+
+* Two minute matches with a fifteen second break, both configurable. Pickups, scores
+  and positions reset at the start of each one.
+* The round clock is published to bots and humans alike.
+* SQLite store for accounts, names, best and total scores, and match counts.
+
 ### Next
 
-Milestone 5, identity. SSH public key as account, one active session per key.
+The pre-game menu. Sign in, set a display name, see the leaderboard, see who is in the
+world right now, read your bot token, and watch the countdown to the next match before
+committing to join.
+
+Bot tokens are still in memory, so a restart invalidates them even though accounts and
+scores now survive.
 
 ### Known issues
 

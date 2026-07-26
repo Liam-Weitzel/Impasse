@@ -5,4 +5,7 @@
 /quake-x3d-main/
 *.sock
 /impasse-server
+*.db
+*.db-shm
+*.db-wal
 /impasse-client

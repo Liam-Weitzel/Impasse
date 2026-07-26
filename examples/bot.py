@@ -2,7 +2,8 @@
 """A reference Impasse bot.
 
     ./impasse-server --map maps/open.txt
-    python3 examples/bot.py
+    ssh -p2222 localhost token          # prints your bot token
+    python3 examples/bot.py --token <token>
 
 It walks to the nearest pickup and channels it. That is all. It is deliberately
 naive so the protocol is easy to read off, not because greedy nearest is a good
@@ -28,7 +29,7 @@ DIRECTIONS = [
 
 
 class Connection:
-    def __init__(self, address):
+    def __init__(self, address, token):
         if address.startswith("unix:"):
             self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.sock.connect(address[len("unix:"):])
@@ -36,6 +37,9 @@ class Connection:
             host, _, port = address.rpartition(":")
             self.sock = socket.create_connection((host or "127.0.0.1", int(port)))
         self.stream = self.sock.makefile("rwb")
+        # Every client authenticates before anything else. The token ties the
+        # bot to your SSH key, and to the one character that key owns.
+        self.send({"type": "auth", "token": token})
 
     def read(self):
         line = self.stream.readline()
@@ -160,11 +164,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--address", default="127.0.0.1:2223",
                         help="server address, or unix:/path/to/impasse.sock")
+    parser.add_argument("--token", required=True,
+                        help="bot token, from `ssh -p2222 <host> token`")
     args = parser.parse_args()
 
-    con = Connection(args.address)
+    con = Connection(args.address, args.token)
 
     welcome = con.read()
+    if welcome.get("type") == "error":
+        raise SystemExit("rejected: %s" % welcome.get("message"))
     if welcome.get("type") != "welcome":
         raise SystemExit("expected a welcome, got %r" % welcome.get("type"))
 

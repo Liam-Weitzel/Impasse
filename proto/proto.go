@@ -14,10 +14,30 @@ import (
 
 // Message type tags.
 const (
+	TypeAuth    = "auth"
 	TypeWelcome = "welcome"
 	TypeState   = "state"
 	TypeQueue   = "queue"
+	TypeError   = "error"
 )
+
+// Auth is the first message every client sends, before anything else. The
+// server replies with a welcome, or an error and a closed connection.
+//
+// Humans never type a token. The SSH server mints a one shot one and hands it
+// to the renderer it spawns. Bots use the long lived token from the account,
+// which `ssh <host> token` prints.
+type Auth struct {
+	Type  string `json:"type"`
+	Token string `json:"token"`
+}
+
+// Error is sent when the server is about to hang up, so a client can say why
+// rather than reporting a bare EOF.
+type Error struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
 
 // Welcome is the first thing the server sends. It carries everything that does
 // not change for the life of the session.
@@ -75,11 +95,34 @@ type Objective struct {
 	Y int `json:"y"`
 }
 
+// Match phases.
+const (
+	// PhaseIntermission is between matches. Scores from the match just
+	// finished stay up, and there is nothing to collect.
+	PhaseIntermission = "intermission"
+	// PhaseRunning is a live match.
+	PhaseRunning = "running"
+)
+
+// Match is where the round cycle has got to. Everyone gets it, humans and bots
+// alike, because how long is left decides whether a pickup across the map is
+// worth starting for.
+type Match struct {
+	Phase string `json:"phase"`
+	// Number counts matches since the server started.
+	Number int `json:"number"`
+	// TicksRemaining is how much of this phase is left. Ticks rather than
+	// seconds, because the game is tick based and clients already know how
+	// long a tick is from the welcome.
+	TicksRemaining int `json:"ticks_remaining"`
+}
+
 // State is the authoritative world after a tick has resolved. The server sends
 // one per tick.
 type State struct {
 	Type       string      `json:"type"`
 	Tick       uint64      `json:"tick"`
+	Match      Match       `json:"match"`
 	Players    []Player    `json:"players"`
 	Objectives []Objective `json:"objectives"`
 }

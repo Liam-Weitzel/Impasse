@@ -22,6 +22,12 @@ func testWorld(t *testing.T, m string) *world {
 	if err != nil {
 		t.Fatalf("loading map: %v", err)
 	}
+
+	// Straight into a live match. Most tests are about the rules rather than
+	// the round clock, and a world opens in intermission where nothing
+	// scores. match_test.go winds this back when the clock is the subject.
+	w.startMatch()
+
 	return w
 }
 

@@ -83,6 +83,10 @@ type client struct {
 	arrow      []*render.CompiledShape
 	telegraph  []*render.CompiledShape
 
+	matchPhase  string
+	matchNumber int
+	matchLeft   time.Duration
+
 	score      int
 	channel    int
 	stunned    int
@@ -311,6 +315,10 @@ func (c *client) applyState(state proto.State) {
 		a.casting = p.Casting > 0
 	}
 
+	c.matchPhase = state.Match.Phase
+	c.matchNumber = state.Match.Number
+	c.matchLeft = time.Duration(state.Match.TicksRemaining) * c.tickDuration
+
 	c.objectives = c.objectives[:0]
 	for _, o := range state.Objectives {
 		pos := cellCenter(grid.Pos{X: o.X, Y: o.Y})
@@ -430,7 +438,8 @@ func (c *client) drawHUD() {
 
 	width, height := c.screen.Size()
 
-	status := fmt.Sprintf("Score: %d|Left: %d", c.score, len(c.objectives))
+	status := fmt.Sprintf("%s|Score: %d|Left: %d",
+		c.matchClock(), c.score, len(c.objectives))
 	if c.channel > 0 {
 		status += fmt.Sprintf("|Looting %d/%d", c.channel, c.lootTicks)
 	}
@@ -521,6 +530,25 @@ func (c *client) render() {
 	c.renderDuration = t1.Sub(t0)
 	c.conversionDuration = t2.Sub(t1)
 	c.termDuration = t3.Sub(t2)
+}
+
+// matchClock is the round timer, counting down whichever phase is running.
+func (c *client) matchClock() string {
+	left := c.matchLeft
+	if left < 0 {
+		left = 0
+	}
+	mins := int(left / time.Minute)
+	secs := int((left % time.Minute) / time.Second)
+
+	switch c.matchPhase {
+	case proto.PhaseRunning:
+		return fmt.Sprintf("Match %d %d:%02d", c.matchNumber, mins, secs)
+	case proto.PhaseIntermission:
+		return fmt.Sprintf("Next match in %d:%02d", mins, secs)
+	default:
+		return "Waiting"
+	}
 }
 
 // drawTelegraphs marks the ground every in-flight burst is about to cover.

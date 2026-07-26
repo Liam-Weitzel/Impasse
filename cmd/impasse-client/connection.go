@@ -18,7 +18,7 @@ type connection struct {
 	net     net.Conn
 	w       *proto.Writer
 	states  chan proto.State
-	out     chan proto.Queue
+	out     chan any
 	closing chan struct{}
 }
 
@@ -42,7 +42,7 @@ func dial(conS string) (*connection, error) {
 		net:     nc,
 		w:       proto.NewWriter(nc),
 		states:  make(chan proto.State, 1),
-		out:     make(chan proto.Queue, 4),
+		out:     make(chan any, 8),
 		closing: make(chan struct{}),
 	}, nil
 }
@@ -52,14 +52,28 @@ func (c *connection) close() {
 	c.net.Close()
 }
 
-// handshake blocks until the welcome message arrives, then starts the reader
-// and writer. Nothing can be drawn before this returns.
-func (c *connection) handshake() (*proto.Welcome, *grid.Grid, error) {
+// handshake authenticates, then blocks until the welcome arrives and starts the
+// reader and writer. Nothing can be drawn before this returns.
+func (c *connection) handshake(token string) (*proto.Welcome, *grid.Grid, error) {
+	if err := c.w.Write(proto.Auth{
+		Type:  proto.TypeAuth,
+		Token: token,
+	}); err != nil {
+		return nil, nil, fmt.Errorf("sending auth: %w", err)
+	}
+
 	r := proto.NewReader(c.net)
 
 	kind, line, err := r.Next()
 	if err != nil {
 		return nil, nil, fmt.Errorf("waiting for welcome: %w", err)
+	}
+	if kind == proto.TypeError {
+		var e proto.Error
+		if err := proto.Decode(line, &e); err == nil {
+			return nil, nil, fmt.Errorf("rejected: %s", e.Message)
+		}
+		return nil, nil, errors.New("rejected by the server")
 	}
 	if kind != proto.TypeWelcome {
 		return nil, nil, fmt.Errorf("expected welcome, got %q", kind)
@@ -125,8 +139,8 @@ func (c *connection) write() {
 		select {
 		case <-c.closing:
 			return
-		case q := <-c.out:
-			if err := c.w.Write(q); err != nil {
+		case msg := <-c.out:
+			if err := c.w.Write(msg); err != nil {
 				log.Printf("write: %v\n", err)
 				return
 			}
@@ -156,10 +170,9 @@ func (c *connection) queueStun() {
 	})
 }
 
-// queue asks the server for an action on the next tick. Dropping it when the
-// buffer is full is fine: the player can just press again, and a stale action
-// is worse than none.
-func (c *connection) queue(msg proto.Queue) {
+// queue sends a message to the server. Dropping it when the buffer is full is
+// fine: the player can just press again, and a stale action is worse than none.
+func (c *connection) queue(msg any) {
 	select {
 	case c.out <- msg:
 	default:

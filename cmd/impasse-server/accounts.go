@@ -1,0 +1,222 @@
+package main
+
+import (
+	"crypto/rand"
+	"encoding/base64"
+	"sync"
+
+	"github.com/gliderlabs/ssh"
+	gossh "golang.org/x/crypto/ssh"
+)
+
+// An account is one player. Identity is the SSH public key, so there is no
+// registration step and no password to lose.
+//
+// One account owns exactly one character, which is the anti multi accounting
+// rule. It is not one connection per character: a bot and the SSH session the
+// player is spectating from both attach to the same character, and whichever
+// queues last before the tick locks is what runs. Nothing else would let a
+// player watch their own bot and take over from it.
+type account struct {
+	fingerprint string
+	botToken    string
+
+	// playerID is the character this account owns, valid while attached.
+	playerID uint64
+	attached bool
+	// An account may hold one of each kind at a time: the terminal you play
+	// or spectate from, and the bot playing for you. Two terminals on one
+	// account is not allowed, so there is never more than one camera and
+	// never any question of which view is the real one.
+	hasRenderer bool
+	hasBot      bool
+}
+
+// connKind is which sort of client a connection is, decided by the token it
+// presented rather than by anything it claims.
+type connKind string
+
+const (
+	// kindRenderer is the terminal client, authenticated with the one shot
+	// token the SSH server hands its renderer.
+	kindRenderer connKind = "terminal"
+	// kindBot is a bot, authenticated with the account's long lived token.
+	kindBot connKind = "bot"
+)
+
+// live reports whether this kind is already connected.
+func (a *account) live(kind connKind) bool {
+	if kind == kindRenderer {
+		return a.hasRenderer
+	}
+	return a.hasBot
+}
+
+func (a *account) setLive(kind connKind, v bool) {
+	if kind == kindRenderer {
+		a.hasRenderer = v
+		return
+	}
+	a.hasBot = v
+}
+
+func (a *account) anyLive() bool {
+	return a.hasRenderer || a.hasBot
+}
+
+// accounts maps keys and tokens to accounts. It has its own lock rather than
+// going through the server command loop, because the SSH handler needs to mint
+// a token synchronously while accepting a connection.
+type accounts struct {
+	mu sync.Mutex
+
+	byFingerprint map[string]*account
+	// byToken covers both the long lived bot tokens and the one shot session
+	// tokens handed to renderers.
+	byToken map[string]*account
+	// oneShot marks tokens that are spent on first use.
+	oneShot map[string]bool
+}
+
+func newAccounts() *accounts {
+	return &accounts{
+		byFingerprint: map[string]*account{},
+		byToken:       map[string]*account{},
+		oneShot:       map[string]bool{},
+	}
+}
+
+func newToken() string {
+	var b [24]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand does not fail in practice, and carrying on with a
+		// guessable token would be worse than stopping.
+		panic("generating token: " + err.Error())
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:])
+}
+
+// fingerprint identifies a public key. The same key always gives the same
+// account, across restarts.
+func fingerprint(key ssh.PublicKey) string {
+	return gossh.FingerprintSHA256(key)
+}
+
+// forKey returns the account for a public key, creating it on first sight.
+func (a *accounts) forKey(key ssh.PublicKey) *account {
+	fp := fingerprint(key)
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	acc := a.byFingerprint[fp]
+	if acc == nil {
+		acc = &account{fingerprint: fp, botToken: newToken()}
+		a.byFingerprint[fp] = acc
+		a.byToken[acc.botToken] = acc
+	}
+	return acc
+}
+
+// sessionToken mints a one shot token for a renderer to authenticate with. The
+// renderer is a child process, so it cannot present the player's key itself.
+func (a *accounts) sessionToken(acc *account) string {
+	token := newToken()
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.byToken[token] = acc
+	a.oneShot[token] = true
+
+	return token
+}
+
+// redeem looks up a token and reports what kind of client it belongs to. One
+// shot tokens are consumed, and being one shot is what makes a connection a
+// renderer: only the SSH server mints those.
+func (a *accounts) redeem(token string) (*account, connKind, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	acc := a.byToken[token]
+	if acc == nil {
+		return nil, "", false
+	}
+
+	kind := kindBot
+	if a.oneShot[token] {
+		kind = kindRenderer
+		delete(a.byToken, token)
+		delete(a.oneShot, token)
+	}
+	return acc, kind, true
+}
+
+// botToken returns the account's long lived token, for use by bots.
+func (a *accounts) botToken(acc *account) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return acc.botToken
+}
+
+// attach records a connection of this kind. It refuses if one is already
+// connected, and reports whether this is the first of any kind, meaning a
+// character has to be created.
+func (a *accounts) attach(acc *account, kind connKind) (first, ok bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if acc.live(kind) {
+		return false, false
+	}
+
+	first = !acc.anyLive()
+	acc.setLive(kind, true)
+
+	return first, true
+}
+
+// detach drops a connection and reports whether it was the last, meaning the
+// character should go.
+func (a *accounts) detach(acc *account, kind connKind) (last bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	acc.setLive(kind, false)
+
+	if !acc.anyLive() {
+		acc.attached = false
+		return true
+	}
+	return false
+}
+
+func (a *accounts) setPlayer(acc *account, id uint64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	acc.playerID = id
+	acc.attached = true
+}
+
+func (a *accounts) player(acc *account) (uint64, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return acc.playerID, acc.attached
+}
+
+// tokenBanner is what the player sees when they run the token command. Kept
+// here so the wording lives next to what it describes.
+func tokenBanner(token, botAddr string) string {
+	address := botAddr
+	if address == "" {
+		address = "the bot API is disabled on this server"
+	}
+	return "" +
+		"Your bot token:\n\n  " + token + "\n\n" +
+		"Bots authenticate with it and drive the same character you do, so you\n" +
+		"can watch and take over. Whichever queues an action last before the\n" +
+		"tick locks is the one that runs.\n\n" +
+		"  python3 examples/bot.py --address " + address + " --token <token>\n\n" +
+		"It is tied to your SSH key and lasts until the server restarts.\n"
+}
