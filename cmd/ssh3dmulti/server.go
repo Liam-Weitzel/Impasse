@@ -1,30 +1,44 @@
 package main
 
 import (
-	"bufio"
+	"errors"
+	"io"
 	"log"
 	"net"
 	"strings"
+	"time"
+
+	"gitlab.com/sascha.l.teichmann/ssh3d/grid"
+	"gitlab.com/sascha.l.teichmann/ssh3d/proto"
 )
+
+// outgoing is the send queue depth per client. A client that falls this far
+// behind is dropping state updates, and since each update is a full snapshot
+// it will catch up on the next one.
+const outgoing = 4
+
+type conn struct {
+	net  net.Conn
+	out  chan any
+	id   uint64
+	dead bool
+}
 
 type server struct {
 	connection string
 	listener   net.Listener
 	cmds       chan func(*server)
-	cons       map[net.Conn]chan string
-	// attendee id per connection, needed to fake a leave message
-	// when a client vanishes without saying goodbye.
-	ids       map[net.Conn]string
-	quit      bool
-	uniqueIDs uint64
+	cons       map[net.Conn]*conn
+	world      *world
+	quit       bool
 }
 
-func newServer(connection string) *server {
+func newServer(connection string, w *world) *server {
 	return &server{
 		connection: connection,
 		cmds:       make(chan func(*server)),
-		cons:       make(map[net.Conn]chan string),
-		ids:        make(map[net.Conn]string),
+		cons:       make(map[net.Conn]*conn),
+		world:      w,
 	}
 }
 
@@ -38,122 +52,112 @@ func (s *server) numConnections() (num int) {
 	return
 }
 
-func (s *server) newID() (id uint64) {
-	done := make(chan struct{})
-	s.cmds <- func(s *server) {
-		id = s.uniqueIDs
-		s.uniqueIDs++
-		close(done)
+// send queues a message for one client. Never blocks the command loop: a stuck
+// client would otherwise freeze the whole server.
+func (s *server) send(c *conn, msg any) {
+	if c.dead {
+		return
 	}
-	<-done
-	return
+	select {
+	case c.out <- msg:
+	default:
+		log.Printf("client %d: send buffer full, dropping message\n", c.id)
+	}
 }
 
-// doBroadcast must only be called from the command loop.
-func (s *server) doBroadcast(msg string, src net.Conn) {
-	for con, out := range s.cons {
-		if con != src {
-			//log.Println("broadcast:", msg)
-			// Never block the command loop on a slow receiver:
-			// one stuck client would freeze the whole server.
-			select {
-			case out <- msg:
-			default:
-				log.Println("send buffer full: dropping message")
-			}
+func (s *server) broadcastState() {
+	state := s.world.state()
+	for _, c := range s.cons {
+		s.send(c, state)
+	}
+}
+
+func (s *server) writer(c *conn) {
+	w := proto.NewWriter(c.net)
+	for msg := range c.out {
+		if err := w.Write(msg); err != nil {
+			log.Printf("client %d: write: %v\n", c.id, err)
+			s.closeCon(c.net)
+			return
 		}
 	}
 }
 
-func (s *server) broadcast(msg string, src net.Conn) {
-	s.cmds <- func(s *server) {
-		s.doBroadcast(msg, src)
+func (s *server) reader(c *conn) {
+	defer s.closeCon(c.net)
+
+	r := proto.NewReader(c.net)
+	for {
+		kind, line, err := r.Next()
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				log.Printf("client %d: read: %v\n", c.id, err)
+			}
+			return
+		}
+
+		switch kind {
+		case proto.TypeQueue:
+			var q proto.Queue
+			if err := proto.Decode(line, &q); err != nil {
+				log.Printf("client %d: bad queue: %v\n", c.id, err)
+				continue
+			}
+			d, ok := grid.ParseDirection(q.Dir)
+			if !ok {
+				log.Printf("client %d: unknown direction %q\n", c.id, q.Dir)
+				continue
+			}
+			s.cmds <- func(s *server) {
+				s.world.queue(c.id, d)
+			}
+		default:
+			log.Printf("client %d: unexpected message %q\n", c.id, kind)
+		}
 	}
 }
 
-// rememberID records which attendee a connection belongs to.
-func (s *server) rememberID(con net.Conn, id string) {
+func (s *server) closeCon(nc net.Conn) {
 	s.cmds <- func(s *server) {
-		s.ids[con] = id
-	}
-}
-
-func (s *server) closeCon(con net.Conn) {
-	s.cmds <- func(s *server) {
-		out, ok := s.cons[con]
+		c, ok := s.cons[nc]
 		if !ok {
-			// Already closed: both send() and receive() report failures.
+			// Both reader and writer report failures, so this runs twice.
 			return
 		}
-		log.Println("connection close")
-		delete(s.cons, con)
-		con.Close()
-		// Terminates the send() goroutine.
-		close(out)
+		log.Printf("client %d: disconnected\n", c.id)
 
-		// The renderer is killed outright when the ssh session goes
-		// away, so it never gets to send its own leave message. Do it
-		// on its behalf or the others keep seeing a ghost. A duplicate
-		// leave is ignored by the clients.
-		if id, ok := s.ids[con]; ok {
-			delete(s.ids, con)
-			s.doBroadcast("l "+id, con)
-		}
+		delete(s.cons, nc)
+		s.world.remove(c.id)
+
+		c.dead = true
+		nc.Close()
+		close(c.out)
+
+		s.broadcastState()
 	}
 }
 
-// attendeeID extracts the attendee id from a protocol message.
-func attendeeID(msg string) (string, bool) {
-	fields := strings.Fields(msg)
-	if len(fields) < 2 {
-		return "", false
-	}
-	switch fields[0] {
-	case "h", "p", "l":
-		return fields[1], true
-	}
-	return "", false
-}
-
-func (s *server) send(con net.Conn, out <-chan string) {
-	for msg := range out {
-		//log.Println("send:", msg)
-		if _, err := con.Write(append([]byte(msg), '\n')); err != nil {
-			log.Printf("send error: %v\n", err)
-			s.closeCon(con)
-			return
-		}
-	}
-}
-
-func (s *server) receive(con net.Conn) {
-	defer s.closeCon(con)
-	var known bool
-	sc := bufio.NewScanner(con)
-	for sc.Scan() {
-		msg := sc.Text()
-		if !known {
-			if id, ok := attendeeID(msg); ok {
-				s.rememberID(con, id)
-				known = true
-			}
-		}
-		s.broadcast(msg, con)
-	}
-	if err := sc.Err(); err != nil {
-		log.Printf("error: %v\n", err)
-	}
-}
-
-func (s *server) newConnection(con net.Conn) {
+func (s *server) newConnection(nc net.Conn) {
 	s.cmds <- func(s *server) {
-		log.Println("new connection")
+		p := s.world.spawn()
 
-		out := make(chan string, 5)
-		s.cons[con] = out
+		c := &conn{
+			net: nc,
+			out: make(chan any, outgoing),
+			id:  p.id,
+		}
+		s.cons[nc] = c
 
-		go s.send(con, out)
-		go s.receive(con)
+		log.Printf("client %d: connected at %v\n", p.id, p.pos)
+
+		go s.writer(c)
+		go s.reader(c)
+
+		s.send(c, s.world.welcome(p))
+
+		// Everyone needs to know about the new player, and the new player
+		// needs to know about everyone.
+		s.broadcastState()
 	}
 }
 
@@ -161,13 +165,12 @@ func (s *server) doQuit() { s.quit = true }
 
 func (s *server) accept() {
 	for {
-		con, err := s.listener.Accept()
+		nc, err := s.listener.Accept()
 		if err != nil {
 			s.cmds <- (*server).doQuit
 			return
 		}
-		log.Println("accepted")
-		s.newConnection(con)
+		s.newConnection(nc)
 	}
 }
 
@@ -190,7 +193,7 @@ func (s *server) listen() error {
 	return nil
 }
 
-func (s server) shutdown() {
+func (s *server) shutdown() {
 	log.Println("shutdown")
 	s.listener.Close()
 }
@@ -204,11 +207,16 @@ func (s *server) run(done chan struct{}) error {
 
 	go s.accept()
 
+	ticker := time.NewTicker(TickDuration)
+	defer ticker.Stop()
+
 	for !s.quit {
 		select {
 		case <-done:
-			log.Println("done closed")
 			return nil
+		case <-ticker.C:
+			s.world.resolve()
+			s.broadcastState()
 		case fn := <-s.cmds:
 			fn(s)
 		}

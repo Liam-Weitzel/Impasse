@@ -196,6 +196,17 @@ func TestDirectionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLinesRoundTrip(t *testing.T) {
+	src := "#####\n#...#\n#.#.#\n#####"
+
+	g := mustParse(t, src)
+	got := strings.Join(g.Lines(), "\n")
+
+	if got != src {
+		t.Fatalf("got\n%s\nwant\n%s", got, src)
+	}
+}
+
 func TestSpawns(t *testing.T) {
 	g := mustParse(t, "###\n#.#\n#.#")
 

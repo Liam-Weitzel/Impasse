@@ -114,9 +114,13 @@ func (mb *MeshBuilder) flush() error {
 	bounds := mb.bounds
 
 	mb.shapes = append(mb.shapes, &CompiledShape{
-		Bounds:       &bounds,
-		vbo:          vbo,
-		ibo:          ibo,
+		Bounds: &bounds,
+		vbo:    vbo,
+		ibo:    ibo,
+		// Quads are wound counter clockwise seen from the front, but the
+		// projection mirrors clip space, so on screen they come out
+		// clockwise. cullCCW(true) selects gl.CW.
+		ccw:          true,
 		diffuseColor: mb.color,
 		nIndices:     int32(len(mb.indices)),
 	})

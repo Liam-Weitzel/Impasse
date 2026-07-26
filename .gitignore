@@ -4,3 +4,5 @@
 # Placeholder level data, downloaded separately (see README).
 /quake-x3d-main/
 *.sock
+/ssh3dmulti
+/x3dmulticlient

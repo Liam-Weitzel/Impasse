@@ -47,31 +47,40 @@ almost never enable. The nix flake builds one from source.
 | `x3d/opengl` | GL layer. Shaders, meshes, textures, framebuffer, camera |
 | `x3d` | Scene data and bounding volumes. X3D loading is being retired |
 
-### Current architecture vs target
+### World model
 
-The inherited codebase is not shaped like the game. Worth knowing before reading it.
+The world is a flat 2D grid of cells, held by the server and simulated there. The 3D
+geometry is generated from the grid, never the other way round.
 
-**The server holds no game state.** `cmd/ssh3dmulti/server.go` is a relay. It forwards
-lines between clients and simulates nothing. Clients are authoritative over their own
-positions and simply announce them. Impasse needs the inverse, where the server owns
-the world and resolves ticks.
+`grid` is pure data with no GL and no networking. It parses the ASCII map, answers
+walkability, and owns the movement rule. Movement is 8 way on `QWEADZXC` and world
+locked, so `W` is always north whatever the camera is doing. A diagonal needs both
+adjoining orthogonal cells open, otherwise a player would slip between two walls
+meeting at a corner and visibly clip through the geometry.
 
-**There is no collision detection.** `Camera.Forward` adds a vector to a position.
-Nothing consults level geometry. You can walk through every wall.
+The server runs a 600ms tick. Clients queue one action, queuing again before the tick
+locks replaces it, and every queued action resolves at once when the tick fires. The
+client interpolates between the last two ticks so movement looks smooth, but nothing
+about resolution is continuous.
 
-**The world is X3D triangle soup** loaded from Quake maps. The Impasse world is an
-authoritative 2D cell grid with geometry generated from it, so the X3D loader
-(`x3d/parser.go`, `x3d/scene.go`) is on its way out. The GL layer beneath it stays.
+Players stack. Nothing blocks a move onto an occupied cell, so geometry is the only
+thing that can refuse a move.
 
-**The wire protocol** is a line format (`h`/`p`/`l` for hello, position, leave)
-carrying client-authoritative positions. It is being replaced by NDJSON carrying queued
-actions and authoritative tick state.
+### Protocol
 
-### Protocol direction
+JSON objects, one per line. `welcome` carries the player id, the tick length and the
+map. `state` carries every player as of the last resolved tick, and is a full snapshot,
+so a client that falls behind can drop stale ones and lose nothing. `queue` goes the
+other way and asks for an action on the next tick.
 
-One protocol, two listeners. NDJSON over the unix socket for SSH renderers, and the
-same over TCP for bots. That makes milestone 4 a listener rather than a second
-protocol.
+One protocol, two listeners. Unix socket for SSH renderers now, TCP for bots later.
+That makes milestone 4 a listener rather than a second protocol.
+
+### Still inherited from ssh3d
+
+The X3D loader (`x3d/parser.go`, `x3d/scene.go`) and the first person path in
+`Renderer.RenderShapes` are left over from the demo and are no longer used by the
+client. They go when milestone 1 closes. The GL layer beneath them stays.
 
 ### Scale and units
 
@@ -101,19 +110,14 @@ Without nix you need an SDL2 built with `--enable-video-offscreen=yes` and
 must be findable at run time. The flake puts libglvnd on `LD_LIBRARY_PATH` for that
 reason.
 
-Placeholder level data, until the grid pipeline lands:
-
-```sh
-wget https://gitlab.com/sascha.l.teichmann/quake-x3d/-/archive/main/quake-x3d-main.tar.gz
-tar xfz quake-x3d-main.tar.gz
-```
-
 Run the server:
 
 ```sh
-./bin/ssh3dmulti --renderer ./bin/x3dmulticlient -- \
-    -scene quake-x3d-main/data/e1m1.x3d.gz
+./bin/ssh3dmulti --renderer ./bin/x3dmulticlient --map maps/test.txt
 ```
+
+Maps are plain ASCII, `#` for wall and `.` for floor. Edit `maps/test.txt` in any text
+editor, restart the server, and the new geometry is there.
 
 Connect:
 
@@ -176,20 +180,23 @@ Cleanup:
 * Renamed `BoundingSphere.Radius` to `RadiusSqr`. It was compared against squared
   distances, so every caller had to pre-square it with nothing saying so.
 
-### Next
-
-Milestone 1, the loop. In progress.
+Milestone 1, the loop:
 
 * `grid` package. ASCII parsing, walkability, 8-way movement with the corner rule.
-* Extrude the grid into wall and floor meshes. Flat colours via the existing
-  `useTexture=0` path, so no texture pipeline is needed.
-* Server owns the grid and every player's cell, runs the 600ms tick, resolves queued
-  actions simultaneously.
-* Replace the `h`/`p`/`l` protocol with NDJSON.
-* Client drops to a view. Send intent, receive authoritative state, interpolate,
-  render continuously.
-* 45 degree follow-cam, yaw clamped to plus or minus 30 degrees, clamped zoom.
-* Retire `x3d/parser.go` and `x3d/scene.go` once the grid path renders.
+* `opengl.MeshBuilder` builds shapes from quads and splits them before the uint16
+  index limit.
+* Grid extruded into floor, wall and wall top geometry. Untextured, flat colours.
+* Server owns the world. 600ms tick, queued actions resolved simultaneously.
+* NDJSON protocol replaced the old `h`/`p`/`l` relay format.
+* Client is a view. Sends intent, interpolates between ticks, redraws at 15fps.
+* 45 degree follow-cam. Yaw clamped to plus or minus 30 degrees, clamped zoom.
+
+### Next
+
+Finish milestone 1:
+
+* Retire `x3d/parser.go`, `x3d/scene.go` and the first person render path.
+* Look at the map on screen and tune cell size, wall height, colours and zoom limits.
 
 Milestone 2, objectives. 4-tick loot channel and the in-world nearest-objective arrow,
 pointed by straight-line bearing.

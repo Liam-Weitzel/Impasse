@@ -51,18 +51,15 @@ func (h *handler) sshHandle(s ssh.Session) {
 		cmdCtx, h.renderer,
 		h.args...)
 
-	env := s.Environ()
-
-	log.Printf("env: %v\n", env)
-
 	// Start from our own environment so the renderer inherits things like
 	// the GL/SDL library paths, then let the session env override it.
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(os.Environ(), s.Environ()...)
 
+	// The player id is assigned when the renderer connects to the socket and
+	// arrives in the welcome message, so it is not passed here.
 	cmd.Env = append(cmd.Env,
 		fmt.Sprintf("TERM=%s", ptyReq.Term),
-		fmt.Sprintf("SSH3D_CONNECTION=%s", h.server.connection),
-		fmt.Sprintf("SSH3D_ID=%d", h.server.newID()))
+		fmt.Sprintf("SSH3D_CONNECTION=%s", h.server.connection))
 
 	f, err := pty.Start(cmd)
 	if err != nil {
@@ -99,13 +96,21 @@ func main() {
 		port       = flag.Int("port", 2222, "ssh server port")
 		connection = flag.String("connection", "unix:"+con, "common connection")
 		maxCons    = flag.Int("maxcons", 0, "max number of connections")
-		renderer   = flag.String("renderer", "ssh3dclient", "path to renderer")
+		renderer   = flag.String("renderer", "x3dmulticlient", "path to renderer")
+		mapFile    = flag.String("map", "maps/test.txt", "path to the ASCII map")
 		keyFile    = flag.String("key", "", "path to host key file")
 	)
 
 	flag.Parse()
 
-	cs := newServer(*connection)
+	w, err := loadWorld(*mapFile)
+	if err != nil {
+		log.Fatalf("loading map: %v\n", err)
+	}
+	log.Printf("map %s loaded: %dx%d, %d walkable cells\n",
+		*mapFile, w.g.Width(), w.g.Height(), len(w.spawns))
+
+	cs := newServer(*connection, w)
 
 	done := make(chan struct{})
 

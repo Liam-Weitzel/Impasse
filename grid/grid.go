@@ -231,6 +231,20 @@ func Parse(r io.Reader) (*Grid, error) {
 	return g, nil
 }
 
+// Lines renders the grid back to the ASCII form Parse accepts. This is how the
+// map reaches clients.
+func (g *Grid) Lines() []string {
+	out := make([]string, g.height)
+	row := make([]byte, g.width)
+	for y := 0; y < g.height; y++ {
+		for x := 0; x < g.width; x++ {
+			row[x] = byte(g.cells[y*g.width+x])
+		}
+		out[y] = string(row)
+	}
+	return out
+}
+
 // Spawns lists every walkable cell, in reading order. Used to place players
 // until objectives exist and dictate spawn placement.
 func (g *Grid) Spawns() []Pos {

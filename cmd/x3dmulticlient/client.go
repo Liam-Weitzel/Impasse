@@ -1,119 +1,107 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"image"
-	"log"
 	"math"
 	"math/rand"
 	"time"
-	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 	gl "github.com/go-gl/gl/v3.1/gles2"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/veandco/go-sdl2/sdl"
 	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
-	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
+	"gitlab.com/sascha.l.teichmann/ssh3d/grid"
+	"gitlab.com/sascha.l.teichmann/ssh3d/proto"
 	"gitlab.com/sascha.l.teichmann/ssh3d/x3d/opengl"
 )
 
 const (
-	far        = 1300
-	nearPlane  = 0.1
-	farPlane   = 4096
-	minFOV     = 60
-	maxFOV     = 130
+	nearPlane  = 1
 	defaultFOV = 90
+
+	// Redraw rate. Movement is interpolated between ticks, so this is the
+	// animation rate and has nothing to do with the tick rate.
+	framesPerSecond = 15
+
+	playerRadius = cellSize * 0.3
 )
 
-type client struct {
-	scene      *x3d.Scene
-	directory  string
-	connection *connection
-	userID     uint64
+// attendee is another player, or us. Positions are held as the cell we came
+// from and the cell we are going to, so a move can be drawn part way through.
+type attendee struct {
+	from mgl32.Vec3
+	to   mgl32.Vec3
+	col  mgl32.Vec3
+}
 
-	quit  bool
-	dirty bool
+// at interpolates between from and to. alpha runs 0 to 1 across one tick.
+func (a *attendee) at(alpha float32) mgl32.Vec3 {
+	return a.from.Add(a.to.Sub(a.from).Mul(alpha))
+}
+
+type client struct {
+	con    *connection
+	userID uint64
+
+	g      *grid.Grid
+	shapes []*opengl.CompiledShape
 
 	window  *sdl.Window
 	context sdl.GLContext
 	screen  tcell.Screen
 
-	textureCache *opengl.TextureCache
-
-	shapes           []*opengl.CompiledShape
-	visibleShapes    []*opengl.CompiledShape
-	visibleAttendees []opengl.SpherePostion
-
 	fov      float32
-	camera   *opengl.Camera
+	camera   *camera
 	renderer *opengl.Renderer
+	sphere   *opengl.Sphere
 
 	fbo           uint32
 	freeFBO       func()
 	renderedImage *image.RGBA
 
+	attendees map[uint64]*attendee
+	spheres   []opengl.SpherePostion
+
+	tickDuration time.Duration
+	tickAt       time.Time
+
 	renderDuration     time.Duration
 	conversionDuration time.Duration
 	termDuration       time.Duration
 
-	attendees map[uint64]*attendee
-	color     mgl32.Vec3
-
-	rnd *rand.Rand
-
-	sphere *opengl.Sphere
+	quit bool
 
 	idleDuration    time.Duration
 	sessionDuration time.Duration
 	lastAction      time.Time
 }
 
-func (c *client) allocFrameBuffer(w, h int) error {
-
-	var err error
-	if c.fbo, c.freeFBO, err = opengl.CreateFrameBuffer(
-		int32(w), int32(h)); err != nil {
-		return err
-	}
-
-	c.renderedImage = image.NewRGBA(image.Rect(0, 0, w, h))
-
-	gl.BindFramebuffer(gl.FRAMEBUFFER, c.fbo)
-	gl.Viewport(0, 0, int32(w), int32(h))
-
-	return nil
-}
-
 func startClient(
-	scene *x3d.Scene, directory string,
-	connection string, userID uint64,
+	con *connection,
+	welcome *proto.Welcome,
+	g *grid.Grid,
 	screen tcell.Screen, window *sdl.Window,
 	idleDuration time.Duration,
 	sessionDuration time.Duration,
 ) error {
 
-	con, err := newConnection(connection)
-	if err != nil {
-		return err
-	}
-	conDone := make(chan struct{})
-	con.run(conDone)
-	defer con.stop(conDone)
-
 	c := &client{
-		scene:           scene,
+		con:             con,
+		userID:          welcome.ID,
+		g:               g,
 		fov:             defaultFOV,
-		directory:       directory,
 		window:          window,
 		screen:          screen,
-		userID:          userID,
-		connection:      con,
+		camera:          newCamera(),
 		attendees:       make(map[uint64]*attendee),
+		tickDuration:    time.Duration(welcome.TickMS) * time.Millisecond,
 		idleDuration:    idleDuration,
 		sessionDuration: sessionDuration,
+	}
+	if c.tickDuration <= 0 {
+		c.tickDuration = 600 * time.Millisecond
 	}
 
 	if err := c.setupOpenGL(); err != nil {
@@ -139,42 +127,22 @@ func (c *client) tearDownOpenGL() {
 	sdl.GLDeleteContext(c.context)
 }
 
-func (c *client) drawHUD() {
-	st := tcell.StyleDefault.
-		Background(tcell.ColorBlack).
-		Foreground(tcell.ColorYellow)
-
-	gfx.WriteString(c.screen, 0, 0,
-		"ESC: Quit|Cursor/WASD: Move|PgUp/PgD: Look up/down|SPACE/C: Up/Down|R: Random Position",
-		st)
-
-	width, height := c.screen.Size()
-
-	totalTime := c.renderDuration + c.conversionDuration + c.termDuration
-
-	var fps float64
-	if totalTime > 0 {
-		fps = 1 / totalTime.Seconds()
+func (c *client) allocFrameBuffer(w, h int) error {
+	var err error
+	if c.fbo, c.freeFBO, err = opengl.CreateFrameBuffer(
+		int32(w), int32(h)); err != nil {
+		return err
 	}
 
-	gfx.WriteString(c.screen, 0, height-1,
-		fmt.Sprintf("3D: %5.2fms|Unicode: %5.2fms|Update: %5.2fms|FPS: %.2f",
-			float64(c.renderDuration.Microseconds())/1000,
-			float64(c.conversionDuration.Microseconds())/1000,
-			float64(c.termDuration.Microseconds())/1000,
-			fps), st)
+	c.renderedImage = image.NewRGBA(image.Rect(0, 0, w, h))
 
-	fovS := fmt.Sprintf("FOV: +/- %3.0f°", c.fov)
-	gfx.WriteString(
-		c.screen, width-utf8.RuneCountInString(fovS), height-1,
-		fovS, st)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, c.fbo)
+	gl.Viewport(0, 0, int32(w), int32(h))
+
+	return nil
 }
 
 func (c *client) run() error {
-
-	if len(c.scene.Viewpoints) == 0 {
-		return errors.New("no viewpoints defined")
-	}
 
 	ambientCol := mgl32.Vec3{0.75, 0.75, 0.75}
 
@@ -194,154 +162,310 @@ func (c *client) run() error {
 
 	c.updateProjection(aspect)
 
-	if c.sphere, err = opengl.NewSphere(15, 16, 16, false); err != nil {
+	if c.sphere, err = opengl.NewSphere(playerRadius, 12, 12, false); err != nil {
 		return err
 	}
 	defer c.sphere.Delete()
 
-	c.textureCache = opengl.NewTextureCache(c.directory)
-	defer c.textureCache.Delete()
-
-	if err := c.compileShapes(); err != nil {
+	if c.shapes, err = buildGridMesh(c.g); err != nil {
 		return err
 	}
-
-	c.rnd = rand.New(rand.NewSource(time.Now().Unix()))
-	vpN := c.rnd.Intn(len(c.scene.Viewpoints))
-	vp := c.scene.Viewpoints[vpN]
-
-	r, g, b := gfx.RandomColor(c.rnd)
-	c.color = mgl32.Vec3{float32(r) / 255, float32(g) / 255, float32(b) / 255}
-
-	p := vp.Position
-	p[1] = -p[1]
-
-	angle := vp.Orientation[3]
-
-	if vp.Orientation[0] > 0 {
-		if angle += math.Pi; angle > 2*math.Pi {
-			angle -= 2 * math.Pi
+	defer func() {
+		for _, cs := range c.shapes {
+			cs.Delete()
 		}
-	}
-
-	c.camera = &opengl.Camera{
-		Position: p,
-		Angle:    angle,
-	}
-
-	// introduce ourself
-	c.connection.sendHello(c.userID, p, c.color)
-
-	// Keybord handling.
-
-	eventsDone := make(chan struct{})
-	defer close(eventsDone)
+	}()
 
 	events := make(chan tcell.Event)
+	eventsDone := make(chan struct{})
+	defer close(eventsDone)
 	go c.screen.ChannelEvents(events, eventsDone)
 
-	keys := make(chan batch)
-
-	go batching(events, keys, keyboardConvert)
-
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+	frames := time.NewTicker(time.Second / framesPerSecond)
+	defer frames.Stop()
 
 	start := time.Now()
-
 	c.lastAction = start
+	c.tickAt = start
 
-	for c.dirty = true; !c.quit; {
-		if c.dirty {
-			c.dirty = false
-			c.render()
-		}
+	for !c.quit {
 		select {
-		case now := <-ticker.C:
-			if c.idleDuration > 0 {
-				if c.lastAction.Add(c.idleDuration).Before(now) {
-					c.quit = true
-				}
-			}
-			if !c.quit && c.sessionDuration > 0 && now.Sub(start) > c.sessionDuration {
-				c.quit = true
-			}
-		case k, ok := <-keys:
-			// A plain break would only leave the select and spin
-			// forever on the closed channel.
-			if !ok {
-				c.quit = true
-				break
-			}
-			k.run(c)
+		case <-frames.C:
+			c.render()
+			c.checkTimeouts(time.Now(), start)
 
-		case m, ok := <-c.connection.in:
+		case ev, ok := <-events:
 			if !ok {
 				c.quit = true
 				break
 			}
-			m.run(c)
+			c.handleEvent(ev)
+
+		case state, ok := <-c.con.states:
+			if !ok {
+				// Server went away.
+				c.quit = true
+				break
+			}
+			c.applyState(state)
 		}
 	}
-
-	// Queued here, flushed by connection.stop() once we return.
-	c.connection.sendLeave(c.userID)
 
 	return nil
 }
 
-func (c *client) moveAttendee(id uint64, x, y, z float32) {
-
-	att := c.attendees[id]
-	if att == nil {
-		return
+func (c *client) checkTimeouts(now, start time.Time) {
+	if c.idleDuration > 0 && c.lastAction.Add(c.idleDuration).Before(now) {
+		c.quit = true
 	}
-	wasVisible := c.withinRange(att.pos)
-	att.pos = mgl32.Vec3{x, y, z}
-	if wasVisible || c.withinRange(att.pos) {
-		c.dirty = true
+	if c.sessionDuration > 0 && now.Sub(start) > c.sessionDuration {
+		c.quit = true
 	}
 }
 
-func (c *client) helloAttendee(id uint64, x, y, z float32, r, g, b byte) {
+// applyState folds an authoritative tick into what is being drawn. Whatever a
+// player was drawn at becomes the start of their next move, so a state arriving
+// mid interpolation does not make anyone jump.
+func (c *client) applyState(state proto.State) {
+	alpha := c.alpha()
+	seen := make(map[uint64]bool, len(state.Players))
 
-	// Don't register if we already know this one.
-	if c.attendees[id] != nil {
-		return
+	for _, p := range state.Players {
+		seen[p.ID] = true
+		to := cellCenter(grid.Pos{X: p.X, Y: p.Y})
+
+		a := c.attendees[p.ID]
+		if a == nil {
+			c.attendees[p.ID] = &attendee{
+				from: to,
+				to:   to,
+				col:  colorFor(p.ID),
+			}
+			continue
+		}
+		a.from = a.at(alpha)
+		a.to = to
 	}
 
-	pos := mgl32.Vec3{x, y, z}
-
-	c.attendees[id] = &attendee{
-		pos: pos,
-		col: mgl32.Vec3{float32(r) / 255, float32(g) / 255, float32(b) / 255},
+	for id := range c.attendees {
+		if !seen[id] {
+			delete(c.attendees, id)
+		}
 	}
 
-	// introduce ourself
-	c.connection.sendHello(
-		c.userID,
-		c.camera.Position,
-		c.color)
+	c.tickAt = time.Now()
+}
 
-	if c.withinRange(pos) {
-		c.dirty = true
+// alpha is how far through the current tick we are.
+func (c *client) alpha() float32 {
+	if c.tickDuration <= 0 {
+		return 1
+	}
+	a := float32(time.Since(c.tickAt)) / float32(c.tickDuration)
+	return mgl32.Clamp(a, 0, 1)
+}
+
+// colorFor gives each player a stable colour derived from their id, so the same
+// player looks the same to everyone.
+func colorFor(id uint64) mgl32.Vec3 {
+	rnd := rand.New(rand.NewSource(int64(id)))
+	r, g, b := gfx.RandomColor(rnd)
+	return mgl32.Vec3{
+		float32(r) / 255,
+		float32(g) / 255,
+		float32(b) / 255,
 	}
 }
 
-func (c *client) withinRange(pos mgl32.Vec3) bool {
-	cpos := c.camera.Position
-	return cpos.Sub(pos).LenSqr() < (far+1)*(far+1)
+func (c *client) handleEvent(ev tcell.Event) {
+	switch ev := ev.(type) {
+	case *tcell.EventResize:
+		c.resize()
+
+	case *tcell.EventKey:
+		switch ev.Key() {
+		case tcell.KeyEsc, tcell.KeyCtrlC:
+			c.quit = true
+		case tcell.KeyUp:
+			c.camera.pitchUp()
+		case tcell.KeyDown:
+			c.camera.pitchDown()
+		case tcell.KeyLeft:
+			c.camera.rotateLeft()
+		case tcell.KeyRight:
+			c.camera.rotateRight()
+		case tcell.KeyRune:
+			c.handleRune(ev.Rune())
+		}
+	}
 }
 
-func (c *client) leaveAttendee(id uint64) {
-	att := c.attendees[id]
-	if att == nil {
+func (c *client) handleRune(r rune) {
+	// '=' and '_' are the unshifted keys for '+' and '-', so both spellings
+	// zoom rather than only the shifted ones.
+	switch r {
+	case '+', '=':
+		c.camera.zoomIn()
+		return
+	case '-', '_':
+		c.camera.zoomOut()
 		return
 	}
-	if c.withinRange(att.pos) {
-		c.dirty = true
+
+	if d := grid.DirectionForKey(r); d != grid.None {
+		c.con.queue(d)
+		c.lastAction = time.Now()
 	}
-	log.Printf("leave object: %d\n", id)
-	delete(c.attendees, id)
-	log.Printf("attendees left: %d\n", len(c.attendees)+1)
+}
+
+func (c *client) resize() {
+	c.screen.Sync()
+
+	sw, sh := c.screen.Size()
+	aspect, rw, rh := fitSize(sw*4, sh*8)
+
+	c.freeFBO()
+	if err := c.allocFrameBuffer(rw, rh); err != nil {
+		// Nothing can be drawn without a framebuffer.
+		c.quit = true
+		return
+	}
+
+	c.updateProjection(aspect)
+}
+
+func (c *client) drawHUD() {
+	st := tcell.StyleDefault.
+		Background(tcell.ColorBlack).
+		Foreground(tcell.ColorYellow)
+
+	gfx.WriteString(c.screen, 0, 0,
+		"ESC: Quit|QWEADZXC: Move|Up/Down: Tilt|Left/Right: Turn|+/-: Zoom",
+		st)
+
+	width, height := c.screen.Size()
+
+	total := c.renderDuration + c.conversionDuration + c.termDuration
+	var fps float64
+	if total > 0 {
+		fps = 1 / total.Seconds()
+	}
+
+	gfx.WriteString(c.screen, 0, height-1,
+		fmt.Sprintf("3D: %5.2fms|Unicode: %5.2fms|Update: %5.2fms|FPS: %.2f",
+			float64(c.renderDuration.Microseconds())/1000,
+			float64(c.conversionDuration.Microseconds())/1000,
+			float64(c.termDuration.Microseconds())/1000,
+			fps), st)
+
+	players := fmt.Sprintf("Players: %d", len(c.attendees))
+	gfx.WriteString(c.screen, width-len(players), height-1, players, st)
+}
+
+func (c *client) render() {
+	alpha := c.alpha()
+
+	if me := c.attendees[c.userID]; me != nil {
+		c.camera.target = me.at(alpha)
+	}
+	view := c.camera.view()
+
+	t0 := time.Now()
+
+	c.renderer.RenderMesh(view, c.shapes)
+
+	c.spheres = c.spheres[:0]
+	for id, a := range c.attendees {
+		pos := a.at(alpha)
+		// Lift the sphere off the floor so it does not sink into it.
+		pos[2] += playerRadius
+		col := a.col
+		if id == c.userID {
+			col = col.Mul(1.4)
+		}
+		c.spheres = append(c.spheres, opengl.SpherePostion{Pos: pos, Col: col})
+	}
+	if len(c.spheres) > 0 {
+		c.renderer.RenderSpheresMesh(view, c.sphere, c.spheres)
+	}
+
+	c.renderer.ReadImage(c.renderedImage)
+	t1 := time.Now()
+
+	gfx.BlitRunes(c.screen, c.renderedImage, false)
+	t2 := time.Now()
+
+	c.drawHUD()
+	c.screen.Show()
+	t3 := time.Now()
+
+	c.renderDuration = t1.Sub(t0)
+	c.conversionDuration = t2.Sub(t1)
+	c.termDuration = t3.Sub(t2)
+}
+
+func (c *client) updateProjectionScreen() {
+	bounds := c.renderedImage.Bounds()
+	c.updateProjection(float32(bounds.Dx()) / float32(bounds.Dy()))
+}
+
+func (c *client) updateProjection(aspect float32) {
+	perspective := mgl32.Perspective(
+		// Halved to compensate for terminal cells being about twice as
+		// tall as they are wide.
+		mgl32.DegToRad(c.fov)*0.5,
+		aspect,
+		nearPlane, c.camera.far())
+
+	// glReadPixels hands back rows starting at the bottom left, because the
+	// GL origin is down there, while image.RGBA row 0 is the top. Without
+	// this the picture reaches the terminal upside down. Flipping here costs
+	// nothing, where flipping the image after readback would copy the whole
+	// framebuffer every frame.
+	//
+	// It reverses triangle orientation on screen, so the renderer treats
+	// clockwise as front facing. See RenderMesh.
+	c.renderer.ProjMat = flipY.Mul4(perspective)
+}
+
+// flipY mirrors clip space vertically.
+var flipY = mgl32.Scale3D(1, -1, 1)
+
+const (
+	maxWidth  = 1360
+	maxHeight = 768
+)
+
+func fit(w, h int) bool {
+	return w <= maxWidth && h <= maxHeight
+}
+
+func aspectScale(x int, aspect float32) int {
+	return int(math.Ceil(float64(float32(x) * aspect)))
+}
+
+func fitSize(w, h int) (float32, int, int) {
+	aspect := float32(w) / float32(h)
+
+	if fit(w, h) {
+		return aspect, w, h
+	}
+
+	c1w, c1h := maxWidth, aspectScale(maxWidth, 1/aspect)
+	c2w, c2h := aspectScale(maxHeight, aspect), maxHeight
+
+	c1f := fit(c1w, c1h)
+	c2f := fit(c2w, c2h)
+
+	if c1f && c2f {
+		if c1w*c1h > c2w*c2h {
+			return aspect, c1w, c1h
+		}
+		return aspect, c2w, c2h
+	}
+
+	if c1f {
+		return aspect, c1w, c1h
+	}
+	return aspect, c2w, c2h
 }

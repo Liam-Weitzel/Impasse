@@ -1,45 +1,16 @@
 package main
 
 import (
-	"bufio"
-	"compress/gzip"
 	"errors"
 	"flag"
-	"fmt"
-	"io"
 	"log"
 	"os"
-	"path/filepath"
 	"runtime"
-	"strconv"
-	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/veandco/go-sdl2/sdl"
 	"gitlab.com/sascha.l.teichmann/ssh3d/gfx"
-	"gitlab.com/sascha.l.teichmann/ssh3d/x3d"
 )
-
-func loadScene(fname string) (*x3d.Scene, error) {
-
-	f, err := os.Open(fname)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	var r io.Reader
-
-	if strings.HasSuffix(strings.ToLower(fname), ".gz") {
-		if r, err = gzip.NewReader(f); err != nil {
-			return nil, err
-		}
-	} else {
-		r = bufio.NewReader(f)
-	}
-
-	return x3d.ParseScene(r)
-}
 
 func check(err error) {
 	if err != nil {
@@ -76,44 +47,43 @@ func logWrap(fname string, fn func() error) (err error) {
 	return
 }
 
-func connectionParams() (string, uint64, error) {
+func connectionParam() (string, error) {
 	connection, ok := os.LookupEnv("SSH3D_CONNECTION")
 	if !ok {
-		return "", 0, errors.New("'SSH3D_CONNECTION' is missing")
+		return "", errors.New("'SSH3D_CONNECTION' is missing")
 	}
-	userIDs, ok := os.LookupEnv("SSH3D_ID")
-	if !ok {
-		return "", 0, errors.New("'SSH3D_ID' is missing")
-	}
-	userID, err := strconv.ParseUint(userIDs, 10, 64)
-	if err != nil {
-		return "", 0, fmt.Errorf("'SSH3D_ID' invalid: %v", err)
-	}
-	return connection, userID, nil
+	return connection, nil
 }
 
 func main() {
 	var (
-		sceneFile       = flag.String("scene", "scene.x3d.gz", "X3D scene to load")
 		logFile         = flag.String("log", "", "Log file")
 		idleDuration    = flag.Duration("idle", 0, "idle duration")
 		sessionDuration = flag.Duration("duration", 0, "session duration")
 	)
 	flag.Parse()
 
-	connection, userID, err := connectionParams()
-	check(err)
-
-	scene, err := loadScene(*sceneFile)
+	connection, err := connectionParam()
 	check(err)
 
 	run := func() error {
+		con, err := dial(connection)
+		if err != nil {
+			return err
+		}
+		defer con.close()
+
+		// The map and our id come from the server, so this has to complete
+		// before there is anything to draw.
+		welcome, g, err := con.handshake()
+		if err != nil {
+			return err
+		}
+
 		return gfx.WrapScreen(func(screen tcell.Screen) error {
 			return gfx.WrapWindow(func(window *sdl.Window) error {
-				directory := filepath.Dir(*sceneFile)
 				return startClient(
-					scene, directory,
-					connection, userID,
+					con, welcome, g,
 					screen, window,
 					(*idleDuration).Abs(),
 					(*sessionDuration).Abs(),
