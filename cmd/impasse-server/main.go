@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -377,6 +380,51 @@ func (h *handler) play(
 	return errors.As(err, &exit) && exit.ExitCode() == proto.ExitToMenu
 }
 
+// hostKey loads the server's SSH host key, making one on first run.
+//
+// The host key is the server's identity, and it has to be the same after a
+// restart. Without a stable one the ssh library invents a fresh key at every
+// start, and every returning player is met with REMOTE HOST IDENTIFICATION HAS
+// CHANGED, which is ssh reporting what looks exactly like someone impersonating
+// the server. Most of them will not connect again.
+func hostKey(path string) (gossh.Signer, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return generateHostKey(path)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading host key %s: %w", path, err)
+	}
+
+	signer, err := gossh.ParsePrivateKey(data)
+	if err != nil {
+		return nil, fmt.Errorf("parsing host key %s: %w", path, err)
+	}
+	return signer, nil
+}
+
+// generateHostKey writes a new ed25519 host key and returns it.
+func generateHostKey(path string) (gossh.Signer, error) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generating host key: %w", err)
+	}
+
+	block, err := gossh.MarshalPrivateKey(priv, "impasse")
+	if err != nil {
+		return nil, fmt.Errorf("encoding host key: %w", err)
+	}
+	data := pem.EncodeToMemory(block)
+
+	// Anyone who can read this can pretend to be the server.
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return nil, fmt.Errorf("writing host key %s: %w", path, err)
+	}
+	log.Printf("new host key written to %s\n", path)
+
+	return gossh.ParsePrivateKey(data)
+}
+
 // resolveClientID picks the GitHub client id out of a flag, a file or the
 // environment, in that order.
 //
@@ -420,7 +468,8 @@ func main() {
 		maxCons    = flag.Int("maxcons", 0, "max number of connections")
 		renderer   = flag.String("renderer", "impasse-client", "path to renderer")
 		mapFile    = flag.String("map", "maps/open.txt", "path to the ASCII map")
-		keyFile    = flag.String("key", "", "path to host key file")
+		keyFile    = flag.String("key", filepath.Join(dir, "impasse_host_key"),
+			"SSH host key file, generated on first run")
 		dbFile     = flag.String("db", "impasse.db", "path to the score database")
 		ghClientID = flag.String("github-client-id", "",
 			"GitHub OAuth app client id. Also read from IMPASSE_GITHUB_CLIENT_ID")
@@ -517,9 +566,14 @@ func main() {
 		KeyboardInteractiveHandler: h.acceptNoKey,
 	}
 
-	if *keyFile != "" {
-		s.SetOption(ssh.HostKeyFile(*keyFile))
+	// Loaded rather than left to the library, and fatal on failure. Falling
+	// back to a throwaway key would look like it worked and then greet every
+	// returning player with a host key warning.
+	signer, err := hostKey(*keyFile)
+	if err != nil {
+		log.Fatalf("host key: %v\n", err)
 	}
+	s.AddHostKey(signer)
 
 	sshDied := make(chan struct{})
 

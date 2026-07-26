@@ -115,6 +115,10 @@ in
           "--bots :${toString cfg.botPort}"
           "--map ${cfg.map}"
           "--db /var/lib/impasse/impasse.db"
+          # In the state directory, so it survives restarts and redeploys.
+          # A host key that changes greets every returning player with
+          # REMOTE HOST IDENTIFICATION HAS CHANGED.
+          "--key /var/lib/impasse/host_key"
         ];
 
         NoNewPrivileges = true;

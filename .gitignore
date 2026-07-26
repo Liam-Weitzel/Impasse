@@ -4,6 +4,9 @@
 # Placeholder level data, downloaded separately (see README).
 /quake-x3d-main/
 *.sock
+# SSH host key. Private, and specific to one deployment.
+/impasse_host_key
+*_host_key
 /impasse-server
 *.db
 *.db-shm

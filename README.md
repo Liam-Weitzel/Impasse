@@ -79,6 +79,15 @@ file-capability binary execs with `AT_SECURE=1`, and glibc in that mode ignores
 check whether the loader honours it. Running as root avoids the problem but puts every
 player's renderer under root.
 
+### Host key
+
+The server writes an SSH host key on first run and reuses it after that. That file is
+the server's identity, so keep it: if it changes, everyone who has connected before is
+met with `REMOTE HOST IDENTIFICATION HAS CHANGED` and most of them will not connect
+again. It is gitignored, and the NixOS module keeps it in the state directory so it
+survives a redeploy. A key that cannot be read stops the server rather than falling back
+to a throwaway one.
+
 ### Connecting
 
 Connect as a human. No SSH key needed:
@@ -109,6 +118,7 @@ terminals like GNOME and XFCE, set `COLORTERM=truecolor` and add
 | `--port` | SSH port, default 22 |
 | `--bots` | Bot API address, default `:2223`, empty to disable |
 | `--db` | Score database, default `impasse.db` |
+| `--key` | SSH host key, default `impasse_host_key`, generated on first run |
 | `--match` | Match length, default 2m |
 | `--intermission` | Break between matches, default 15s |
 | `--github-client-id` | Also read from `IMPASSE_GITHUB_CLIENT_ID` |
