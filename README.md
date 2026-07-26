@@ -47,6 +47,7 @@ almost never enable. The nix flake builds one from source.
 | `proto` | Wire format shared by the server and every client |
 | `gfx` | Terminal output. Pixels to Unicode blocks, colour, screen setup |
 | `render` | GL layer. Shaders, meshes, framebuffer |
+| `examples` | Reference bot |
 
 ### World model
 
@@ -156,6 +157,21 @@ direction, a loot, or a stun. Sending another before the tick locks replaces the
 
 Bots get raw cells, never a graph. Turning the map into something you can search is the
 bot author's job, and `examples/bot.py` shows the whole of it in about thirty lines.
+
+### The menu
+
+Connecting drops you in a pre-game menu rather than straight into the world. It runs in
+the server process, over the SSH session, because it needs the store and the live world.
+The renderer is a separate process and is only spawned once you choose Play.
+
+It shows who you are signed in as and your record, the leaderboard, who is in the world
+right now and what is driving them, your bot token, and the same match countdown the in
+game HUD shows. Display names can be changed there.
+
+It is bubbletea and lipgloss. Over SSH there is no local terminal to probe, so the
+colour profile comes from the client's `TERM` and `COLORTERM` rather than from
+auto detection, and window size comes from the pty request and the resize channel
+instead of from an ioctl.
 
 ### Identity
 
@@ -392,6 +408,12 @@ Milestone 4, bot API:
   movement, walls, looting, two clients seeing each other, disconnect cleanup and
   malformed input. Both transports.
 
+The pre-game menu:
+
+* Play, leaderboard, live player list, display name, bot token, quit.
+* Match countdown, the same one players in the world see.
+* Runs in the server over the SSH session, then hands the terminal to the renderer.
+
 Milestone 5, identity:
 
 * SSH public key is the account. No registration, no password.
@@ -410,12 +432,11 @@ Matches and scores:
 
 ### Next
 
-The pre-game menu. Sign in, set a display name, see the leaderboard, see who is in the
-world right now, read your bot token, and watch the countdown to the next match before
-committing to join.
-
 Bot tokens are still in memory, so a restart invalidates them even though accounts and
 scores now survive.
+
+Two minutes per match is a starting point rather than a considered number. Tune it with
+`--match` once it has been played properly.
 
 ### Known issues
 

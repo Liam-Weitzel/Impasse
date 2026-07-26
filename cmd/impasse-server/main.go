@@ -13,8 +13,11 @@ import (
 	"syscall"
 	"unsafe"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/creack/pty"
 	"github.com/gliderlabs/ssh"
+	"github.com/muesli/termenv"
 )
 
 type handler struct {
@@ -56,6 +59,58 @@ func setWinsize(f *os.File, w, h int) {
 		uintptr(unsafe.Pointer(&struct{ h, w, x, y uint16 }{uint16(h), uint16(w), 0, 0})))
 }
 
+// runMenu shows the pre-game menu and reports whether the player chose to play.
+func (h *handler) runMenu(
+	s ssh.Session,
+	acc *account,
+	ptyReq ssh.Pty,
+	winCh <-chan ssh.Window,
+) bool {
+	// Over SSH there is no local terminal to probe, so the colour profile
+	// comes from what the client told us.
+	renderer := lipgloss.NewRenderer(s,
+		termenv.WithProfile(colorProfile(ptyReq.Term, s.Environ())),
+		termenv.WithColorCache(true))
+
+	model := newMenuModel(h.server, acc, h.botAddr, renderer)
+	model.width, model.height = ptyReq.Window.Width, ptyReq.Window.Height
+
+	program := tea.NewProgram(model,
+		tea.WithInput(s),
+		tea.WithOutput(s),
+		tea.WithAltScreen(),
+		// The session already handles its own signals, and bubbletea
+		// grabbing them would fight the ssh server.
+		tea.WithoutSignals(),
+		tea.WithContext(s.Context()),
+	)
+
+	// bubbletea cannot size a non tty by itself, so feed it the pty size and
+	// every resize the client reports.
+	sizes := make(chan struct{})
+	go func() {
+		defer close(sizes)
+		program.Send(tea.WindowSizeMsg{
+			Width:  ptyReq.Window.Width,
+			Height: ptyReq.Window.Height,
+		})
+		for win := range winCh {
+			program.Send(tea.WindowSizeMsg{Width: win.Width, Height: win.Height})
+		}
+	}()
+
+	final, err := program.Run()
+	if err != nil {
+		log.Printf("menu: %v\n", err)
+		return false
+	}
+
+	if m, ok := final.(menuModel); ok {
+		return m.choice == choicePlay
+	}
+	return false
+}
+
 func (h *handler) sshHandle(s ssh.Session) {
 
 	acc, _ := s.Context().Value(contextKeyAccount).(*account)
@@ -82,6 +137,13 @@ func (h *handler) sshHandle(s ssh.Session) {
 	if !isPty {
 		io.WriteString(s, "non-interactive terminals are not supported\n")
 		s.Exit(1)
+		return
+	}
+
+	// The menu runs here in the server, because it needs the store and the
+	// live world. The renderer is a separate process and only gets spawned
+	// once the player has actually chosen to play.
+	if !h.runMenu(s, acc, ptyReq, winCh) {
 		return
 	}
 
