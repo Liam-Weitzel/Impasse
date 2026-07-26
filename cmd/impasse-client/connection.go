@@ -149,6 +149,13 @@ func (c *connection) queueLoot() {
 	})
 }
 
+func (c *connection) queueStun() {
+	c.queue(proto.Queue{
+		Type:   proto.TypeQueue,
+		Action: proto.ActionStun,
+	})
+}
+
 // queue asks the server for an action on the next tick. Dropping it when the
 // buffer is full is fine: the player can just press again, and a stale action
 // is worse than none.

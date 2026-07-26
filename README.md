@@ -77,12 +77,35 @@ two or more finish together nobody takes it, and they sit there at a full channe
 one of them stops. The tick after that, the other collects. This is the standoff the
 game is named for.
 
-It also means attacking into a standoff loses it. Casting a stun is not looting, so it
-drops the attacker's own channel, leaving the opponent as the sole finisher a full tick
-before the stun can land. Stun earns its keep earlier, while someone is still climbing
-their channel, where spending one tick to erase two of theirs pays off.
-
 Collected pickups do not come back. Respawn is undesigned.
+
+### Stun
+
+`S` bursts every other player in the 3x3 around you. It is area of effect, with no
+target selection.
+
+One tick of startup, then it holds a victim for two ticks and fully wipes their loot
+channel. Targets are chosen when the burst is cast, not when it lands, so stepping out
+during the startup tick does not save you, and stepping in does not catch you.
+
+The cooldown is three ticks, and it has to stay above the two tick duration. Cast at T
+lands at T+1 and holds through T+2, so a cooldown of two would let the next burst land
+at T+3 and a single attacker could keep someone stunned forever. At three the victim
+gets exactly one free tick per cycle. `TestStunLockLeavesExactlyOneFreeTick` measures
+this rather than trusting the comment.
+
+A burst in flight is public. `casting` on each player counts the ticks until it lands,
+and the client paints the 3x3 it will cover on the floor for everyone to see. This is
+resolved state rather than queued intent, so it gives nothing away about what anyone
+means to do next, and it lands whatever the victim does. What it buys is letting
+bystanders see one coming and decide whether to close in. Casting at empty air
+telegraphs identically, so a wind up is not proof that anyone is in range.
+
+Casting is not looting, so it drops the caster's own channel. That is what makes
+attacking into a standoff lose it: the opponent becomes the sole finisher on the very
+tick you cast, a full tick before your burst can land. Stun earns its keep earlier,
+while someone is still climbing their channel, where spending one tick to erase two of
+theirs pays off.
 
 ### Protocol
 
@@ -254,12 +277,18 @@ Milestone 2, objectives:
   stops, and the other takes it on the next tick.
 * An in-world arrow above your own marker points at the nearest pickup by straight
   line bearing. It will point through walls on purpose. It says where, never how.
-* Score and pickups remaining in the HUD, `S` to loot.
+* Score and pickups remaining in the HUD.
+
+Milestone 3, stun:
+
+* `S` bursts the 3x3 around you. Area of effect, no target selection.
+* 1 tick startup, 2 tick duration, 3 tick cooldown, full loot reset.
+* Targets are picked at cast, so fleeing during startup does not help.
+* Loot moved to space, since `S` is now the attack.
+* In-flight bursts are published and drawn as a floor patch over the 3x3 they will
+  cover, with CASTING in the HUD.
 
 ### Next
-
-Milestone 3, stun. 1 cell range checked at cast, 1 tick startup, 2 tick duration, 3
-tick cooldown, full loot reset.
 
 Milestone 4, bot API. Same NDJSON protocol on a TCP listener.
 

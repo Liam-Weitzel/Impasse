@@ -32,7 +32,10 @@ const (
 	objectiveHeight = cellSize * 0.3
 )
 
-var objectiveColor = mgl32.Vec3{0.95, 0.80, 0.25}
+var (
+	objectiveColor = mgl32.Vec3{0.95, 0.80, 0.25}
+	stunnedColor   = mgl32.Vec3{0.30, 0.30, 0.35}
+)
 
 // attendee is another player, or us. Positions are held as the cell we came
 // from and the cell we are going to, so a move can be drawn part way through.
@@ -40,6 +43,10 @@ type attendee struct {
 	from mgl32.Vec3
 	to   mgl32.Vec3
 	col  mgl32.Vec3
+	// stunned players are drawn washed out, so a fight reads at a glance.
+	stunned bool
+	// casting marks a burst already cast and about to land.
+	casting bool
 }
 
 // at interpolates between from and to. alpha runs 0 to 1 across one tick.
@@ -74,10 +81,15 @@ type client struct {
 	objectives []mgl32.Vec3
 	objSphere  *render.Sphere
 	arrow      []*render.CompiledShape
+	telegraph  []*render.CompiledShape
 
-	score     int
-	channel   int
-	lootTicks int
+	score      int
+	channel    int
+	stunned    int
+	stunCD     int
+	casting    int
+	lootTicks  int
+	stunRadius int
 
 	tickDuration time.Duration
 	tickAt       time.Time
@@ -113,6 +125,7 @@ func startClient(
 		attendees:       make(map[uint64]*attendee),
 		tickDuration:    time.Duration(welcome.TickMS) * time.Millisecond,
 		lootTicks:       welcome.LootTicks,
+		stunRadius:      welcome.StunRadius,
 		idleDuration:    idleDuration,
 		sessionDuration: sessionDuration,
 	}
@@ -197,6 +210,15 @@ func (c *client) run() error {
 		}
 	}()
 
+	if c.telegraph, err = buildTelegraph(c.stunRadius); err != nil {
+		return err
+	}
+	defer func() {
+		for _, cs := range c.telegraph {
+			cs.Delete()
+		}
+	}()
+
 	if c.shapes, err = buildGridMesh(c.g); err != nil {
 		return err
 	}
@@ -267,19 +289,26 @@ func (c *client) applyState(state proto.State) {
 		if p.ID == c.userID {
 			c.score = p.Score
 			c.channel = p.Channel
+			c.stunned = p.Stunned
+			c.stunCD = p.StunCD
+			c.casting = p.Casting
 		}
 
 		a := c.attendees[p.ID]
 		if a == nil {
 			c.attendees[p.ID] = &attendee{
-				from: to,
-				to:   to,
-				col:  colorFor(p.ID),
+				from:    to,
+				to:      to,
+				col:     colorFor(p.ID),
+				stunned: p.Stunned > 0,
+				casting: p.Casting > 0,
 			}
 			continue
 		}
 		a.from = a.at(alpha)
 		a.to = to
+		a.stunned = p.Stunned > 0
+		a.casting = p.Casting > 0
 	}
 
 	c.objectives = c.objectives[:0]
@@ -354,10 +383,15 @@ func (c *client) handleRune(r rune) {
 		return
 	}
 
-	// S sits in the middle of the movement cluster and does the standing
-	// still job: channel the pickup underfoot, or simply hold position when
-	// there is nothing there.
-	if r == 's' {
+	// S sits in the middle of the movement cluster and bursts everyone
+	// around you. Space loots, which also serves as hold position when there
+	// is nothing underfoot.
+	switch r {
+	case 's':
+		c.con.queueStun()
+		c.lastAction = time.Now()
+		return
+	case ' ':
 		c.con.queueLoot()
 		c.lastAction = time.Now()
 		return
@@ -391,7 +425,7 @@ func (c *client) drawHUD() {
 		Foreground(tcell.ColorYellow)
 
 	gfx.WriteString(c.screen, 0, 0,
-		"ESC: Quit|QWEADZXC: Move|S: Loot|Arrows: Camera|+/-: Zoom",
+		"ESC: Quit|QWEADZXC: Move|Space: Loot|S: Stun|Arrows: Camera|+/-: Zoom",
 		st)
 
 	width, height := c.screen.Size()
@@ -399,6 +433,16 @@ func (c *client) drawHUD() {
 	status := fmt.Sprintf("Score: %d|Left: %d", c.score, len(c.objectives))
 	if c.channel > 0 {
 		status += fmt.Sprintf("|Looting %d/%d", c.channel, c.lootTicks)
+	}
+	switch {
+	case c.stunned > 0:
+		status += fmt.Sprintf("|STUNNED %d", c.stunned)
+	case c.casting > 0:
+		status += "|CASTING"
+	case c.stunCD > 0:
+		status += fmt.Sprintf("|Stun in %d", c.stunCD)
+	default:
+		status += "|Stun ready"
 	}
 	gfx.WriteString(c.screen, width-utf8.RuneCountInString(status), 0, status, st)
 
@@ -431,6 +475,8 @@ func (c *client) render() {
 
 	c.renderer.RenderMesh(view, c.shapes)
 
+	c.drawTelegraphs(view, alpha)
+
 	c.spheres = c.spheres[:0]
 	for id, a := range c.attendees {
 		pos := a.at(alpha)
@@ -439,6 +485,9 @@ func (c *client) render() {
 		col := a.col
 		if id == c.userID {
 			col = col.Mul(1.4)
+		}
+		if a.stunned {
+			col = stunnedColor
 		}
 		c.spheres = append(c.spheres, render.SpherePosition{Pos: pos, Col: col})
 	}
@@ -472,6 +521,19 @@ func (c *client) render() {
 	c.renderDuration = t1.Sub(t0)
 	c.conversionDuration = t2.Sub(t1)
 	c.termDuration = t3.Sub(t2)
+}
+
+// drawTelegraphs marks the ground every in-flight burst is about to cover.
+func (c *client) drawTelegraphs(view mgl32.Mat4, alpha float32) {
+	for _, a := range c.attendees {
+		if !a.casting {
+			continue
+		}
+		model := telegraphTransform(a.at(alpha))
+		for _, cs := range c.telegraph {
+			c.renderer.RenderShapeAt(view, model, cs, telegraphColor)
+		}
+	}
 }
 
 // drawArrow points at the nearest uncollected pickup by straight-line bearing.

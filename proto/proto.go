@@ -27,14 +27,21 @@ type Welcome struct {
 	TickMS int    `json:"tick_ms"`
 	// LootTicks is how many ticks of channelling a pickup takes. Sent rather
 	// than assumed so clients do not carry their own copy of a server rule.
-	LootTicks int      `json:"loot_ticks"`
-	Map       []string `json:"map"`
+	LootTicks int `json:"loot_ticks"`
+	// StunTicks is how long a stun holds a victim, StunCooldownTicks how long
+	// before the caster can go again, and StunRadius how far the burst
+	// reaches in cells.
+	StunTicks         int      `json:"stun_ticks"`
+	StunCooldownTicks int      `json:"stun_cooldown_ticks"`
+	StunRadius        int      `json:"stun_radius"`
+	Map               []string `json:"map"`
 }
 
 // Action kinds a client can queue.
 const (
 	ActionMove = "move"
 	ActionLoot = "loot"
+	ActionStun = "stun"
 )
 
 // Player is one player as of the last resolved tick.
@@ -48,6 +55,18 @@ type Player struct {
 	// looting. It is visible to everyone, because who is close to taking a
 	// pickup is exactly what opponents need to decide whether to interfere.
 	Channel int `json:"channel"`
+	// Stunned is how many more ticks they cannot act for, 0 when free.
+	Stunned int `json:"stunned"`
+	// StunCD is how many ticks until they can cast a stun again.
+	StunCD int `json:"stun_cd"`
+	// Casting is how many ticks until a burst they have already cast lands,
+	// 0 when they are not winding one up.
+	//
+	// This is resolved state, not queued intent. The cast already happened on
+	// a previous tick, and it lands whatever anyone does now, so publishing
+	// it gives nothing away about what anyone intends to do next. It lets
+	// bystanders see an incoming burst and decide whether to close in.
+	Casting int `json:"casting"`
 }
 
 // Objective is an uncollected pickup. Collected ones are simply absent.

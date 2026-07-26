@@ -18,7 +18,35 @@ const (
 	// LootTicks is how long a player must channel to take a pickup. Long
 	// enough to be worth interrupting.
 	LootTicks = 4
+
+	// StunStartup is how long after casting the burst lands.
+	StunStartup = 1
+	// StunTicks is how many ticks a victim loses.
+	StunTicks = 2
+	// StunCooldown is how long before the caster can go again, measured from
+	// the cast.
+	//
+	// It has to exceed StunTicks or a single attacker locks a victim out
+	// forever: cast at T lands T+1 and holds through T+2, so a cooldown of 2
+	// would let the next cast land at T+3 with the victim never getting a
+	// turn. At 3 the next cast lands at T+4 and the victim gets exactly one
+	// free tick at T+3. Do not lower this to match StunTicks.
+	StunCooldown = 3
+	// StunRadius is the reach in cells. 1 gives the 3x3 block around the
+	// caster.
+	StunRadius = 1
 )
+
+// pendingStun is a cast that has happened but not yet landed.
+//
+// Targets are chosen when the burst is cast, not when it lands, so a victim
+// cannot step clear during the startup tick. Whoever was in range when the
+// button went down is caught.
+type pendingStun struct {
+	caster  uint64
+	land    uint64
+	targets []uint64
+}
 
 // action is what a player has asked for on the next tick.
 type action struct {
@@ -39,6 +67,11 @@ type player struct {
 	// makes their own progress.
 	channel int
 
+	// stunned counts down the ticks this player cannot act for.
+	stunned int
+	// stunReady is the first tick they may cast again.
+	stunReady uint64
+
 	score int
 }
 
@@ -50,6 +83,9 @@ type world struct {
 
 	// objectives holds the pickups still uncollected.
 	objectives map[grid.Pos]bool
+
+	// pending holds stuns cast but not yet landed.
+	pending []pendingStun
 
 	// spawn is where every player enters. All players share one point, so
 	// the start of a round is a scramble out of the same door.
@@ -142,9 +178,32 @@ func (w *world) queueLoot(id uint64) {
 	}
 }
 
+// queueStun asks to burst everyone nearby on the next tick.
+func (w *world) queueStun(id uint64) {
+	if p := w.players[id]; p != nil {
+		p.queued = action{kind: proto.ActionStun}
+	}
+}
+
 // resolve locks the tick and applies every queued action at once.
+//
+// Order within the tick is fixed and matters:
+//
+//  1. Stuns cast last tick land, so a victim loses this tick's action.
+//  2. Positions are snapshotted, so range is measured before anybody moves
+//     and no player's action can depend on another's resolving first.
+//  3. Actions run.
+//  4. Pickups are awarded, so simultaneous finishers are seen together.
 func (w *world) resolve() {
 	w.tick++
+
+	w.landStuns()
+
+	// Range is measured from where everyone stood at the start of the tick.
+	positions := make(map[uint64]grid.Pos, len(w.players))
+	for id, p := range w.players {
+		positions[id] = p.pos
+	}
 
 	// Whoever completes a channel this tick, grouped by pickup. Awarding is
 	// deferred so that the order players happen to be iterated in cannot
@@ -152,7 +211,24 @@ func (w *world) resolve() {
 	finishers := map[grid.Pos][]*player{}
 
 	for _, p := range w.players {
+		if p.stunned > 0 {
+			// Out cold. No action, and nothing carries over to the wake.
+			p.stunned--
+			p.channel = 0
+			p.queued = action{}
+			continue
+		}
+
 		switch p.queued.kind {
+		case proto.ActionStun:
+			// Casting is not looting, so the channel goes either way. That
+			// is what makes attacking into a standoff lose it.
+			p.channel = 0
+			p.queued = action{}
+			if w.tick >= p.stunReady {
+				w.cast(p, positions)
+			}
+
 		case proto.ActionLoot:
 			if !w.objectives[p.pos] {
 				// Nothing here, or someone already took it.
@@ -198,6 +274,67 @@ func (w *world) resolve() {
 	}
 }
 
+// landStuns applies the bursts due this tick. It runs before actions, so a
+// victim loses the tick the burst lands on.
+func (w *world) landStuns() {
+	if len(w.pending) == 0 {
+		return
+	}
+
+	kept := w.pending[:0]
+	for _, ps := range w.pending {
+		if ps.land > w.tick {
+			kept = append(kept, ps)
+			continue
+		}
+		for _, id := range ps.targets {
+			p := w.players[id]
+			if p == nil {
+				// Left the game between the cast and the landing.
+				continue
+			}
+			p.stunned = StunTicks
+			p.channel = 0
+			p.queued = action{}
+		}
+	}
+	w.pending = kept
+}
+
+// cast schedules a burst around the caster. Everyone in range at this moment
+// is caught, wherever they are when it lands.
+func (w *world) cast(caster *player, positions map[uint64]grid.Pos) {
+	origin := positions[caster.id]
+
+	var targets []uint64
+	for id, pos := range positions {
+		if id == caster.id {
+			continue
+		}
+		if abs(pos.X-origin.X) <= StunRadius && abs(pos.Y-origin.Y) <= StunRadius {
+			targets = append(targets, id)
+		}
+	}
+
+	caster.stunReady = w.tick + StunCooldown
+
+	// Recorded even with nothing in range. The caster still visibly winds up,
+	// and a burst that hits air should look the same to onlookers as one that
+	// connects.
+	w.pending = append(w.pending, pendingStun{
+		caster:  caster.id,
+		land:    w.tick + StunStartup,
+		targets: targets,
+	})
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
 // award resolves one pickup against everyone who finished channelling it on
 // this tick.
 //
@@ -225,23 +362,41 @@ func (w *world) award(pos grid.Pos, finishers []*player) {
 
 func (w *world) welcome(p *player) proto.Welcome {
 	return proto.Welcome{
-		Type:      proto.TypeWelcome,
-		ID:        p.id,
-		TickMS:    int(TickDuration / time.Millisecond),
-		LootTicks: LootTicks,
-		Map:       w.g.Lines(),
+		Type:              proto.TypeWelcome,
+		ID:                p.id,
+		TickMS:            int(TickDuration / time.Millisecond),
+		LootTicks:         LootTicks,
+		StunTicks:         StunTicks,
+		StunCooldownTicks: StunCooldown,
+		StunRadius:        StunRadius,
+		Map:               w.g.Lines(),
 	}
 }
 
 func (w *world) state() proto.State {
+	// Bursts in flight, by caster, so onlookers can see one coming.
+	casting := make(map[uint64]int, len(w.pending))
+	for _, ps := range w.pending {
+		if ps.land > w.tick {
+			casting[ps.caster] = int(ps.land - w.tick)
+		}
+	}
+
 	players := make([]proto.Player, 0, len(w.players))
 	for _, p := range w.players {
+		cooldown := 0
+		if p.stunReady > w.tick {
+			cooldown = int(p.stunReady - w.tick)
+		}
 		players = append(players, proto.Player{
 			ID:      p.id,
 			X:       p.pos.X,
 			Y:       p.pos.Y,
 			Score:   p.score,
 			Channel: p.channel,
+			Stunned: p.stunned,
+			StunCD:  cooldown,
+			Casting: casting[p.id],
 		})
 	}
 

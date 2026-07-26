@@ -117,6 +117,10 @@ func (s *server) reader(c *conn) {
 				s.cmds <- func(s *server) {
 					s.world.queueLoot(c.id)
 				}
+			case proto.ActionStun:
+				s.cmds <- func(s *server) {
+					s.world.queueStun(c.id)
+				}
 			default:
 				log.Printf("client %d: unknown action %q\n", c.id, q.Action)
 			}
