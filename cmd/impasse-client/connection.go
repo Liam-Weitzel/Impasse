@@ -134,11 +134,25 @@ func (c *connection) write() {
 	}
 }
 
+func (c *connection) queueMove(d grid.Direction) {
+	c.queue(proto.Queue{
+		Type:   proto.TypeQueue,
+		Action: proto.ActionMove,
+		Dir:    d.String(),
+	})
+}
+
+func (c *connection) queueLoot() {
+	c.queue(proto.Queue{
+		Type:   proto.TypeQueue,
+		Action: proto.ActionLoot,
+	})
+}
+
 // queue asks the server for an action on the next tick. Dropping it when the
 // buffer is full is fine: the player can just press again, and a stale action
 // is worse than none.
-func (c *connection) queue(d grid.Direction) {
-	msg := proto.Queue{Type: proto.TypeQueue, Dir: d.String()}
+func (c *connection) queue(msg proto.Queue) {
 	select {
 	case c.out <- msg:
 	default:

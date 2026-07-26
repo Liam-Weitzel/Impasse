@@ -22,32 +22,60 @@ const (
 // Welcome is the first thing the server sends. It carries everything that does
 // not change for the life of the session.
 type Welcome struct {
-	Type   string   `json:"type"`
-	ID     uint64   `json:"id"`
-	TickMS int      `json:"tick_ms"`
-	Map    []string `json:"map"`
+	Type   string `json:"type"`
+	ID     uint64 `json:"id"`
+	TickMS int    `json:"tick_ms"`
+	// LootTicks is how many ticks of channelling a pickup takes. Sent rather
+	// than assumed so clients do not carry their own copy of a server rule.
+	LootTicks int      `json:"loot_ticks"`
+	Map       []string `json:"map"`
 }
+
+// Action kinds a client can queue.
+const (
+	ActionMove = "move"
+	ActionLoot = "loot"
+)
 
 // Player is one player as of the last resolved tick.
 type Player struct {
 	ID uint64 `json:"id"`
 	X  int    `json:"x"`
 	Y  int    `json:"y"`
+	// Score is how many objectives this player has collected.
+	Score int `json:"score"`
+	// Channel is how many ticks of loot progress they hold, 0 when not
+	// looting. It is visible to everyone, because who is close to taking a
+	// pickup is exactly what opponents need to decide whether to interfere.
+	Channel int `json:"channel"`
+}
+
+// Objective is an uncollected pickup. Collected ones are simply absent.
+type Objective struct {
+	X int `json:"x"`
+	Y int `json:"y"`
 }
 
 // State is the authoritative world after a tick has resolved. The server sends
 // one per tick.
 type State struct {
-	Type    string   `json:"type"`
-	Tick    uint64   `json:"tick"`
-	Players []Player `json:"players"`
+	Type       string      `json:"type"`
+	Tick       uint64      `json:"tick"`
+	Players    []Player    `json:"players"`
+	Objectives []Objective `json:"objectives"`
 }
 
 // Queue is a client asking for an action on the next tick. Sending another one
 // before the tick locks replaces the first.
+//
+// A move is consumed by the tick it resolves on. A loot persists until the
+// player queues something else, finishes, or loses the channel, so holding a
+// pickup does not mean spamming the key.
 type Queue struct {
-	Type string `json:"type"`
-	Dir  string `json:"dir"`
+	Type   string `json:"type"`
+	Action string `json:"action"`
+	// Dir is only read for a move.
+	Dir string `json:"dir,omitempty"`
 }
 
 // Writer serialises messages onto a stream.

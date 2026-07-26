@@ -80,7 +80,7 @@ func TestSpawnCellIsWalkable(t *testing.T) {
 	w := testWorld(t, "#####\n#.S.#\n#####")
 
 	p := w.join()
-	w.queue(p.id, grid.West)
+	w.queueMove(p.id, grid.West)
 	w.resolve()
 
 	if want := (grid.Pos{X: 1, Y: 1}); p.pos != want {
@@ -132,7 +132,7 @@ func TestResolveAppliesQueuedMove(t *testing.T) {
 	p := w.join()
 	p.pos = grid.Pos{X: 1, Y: 1}
 
-	w.queue(p.id, grid.SouthEast)
+	w.queueMove(p.id, grid.SouthEast)
 	w.resolve()
 
 	if want := (grid.Pos{X: 2, Y: 2}); p.pos != want {
@@ -147,7 +147,7 @@ func TestResolveClearsQueue(t *testing.T) {
 	p := w.join()
 	p.pos = grid.Pos{X: 1, Y: 1}
 
-	w.queue(p.id, grid.East)
+	w.queueMove(p.id, grid.East)
 	w.resolve()
 	after := p.pos
 
@@ -156,7 +156,7 @@ func TestResolveClearsQueue(t *testing.T) {
 	if p.pos != after {
 		t.Fatalf("moved again without a new action: %v then %v", after, p.pos)
 	}
-	if p.queued != grid.None {
+	if p.queued.kind != "" {
 		t.Errorf("queue still holds %v", p.queued)
 	}
 }
@@ -167,8 +167,8 @@ func TestQueueOverwrites(t *testing.T) {
 	p := w.join()
 	p.pos = grid.Pos{X: 1, Y: 1}
 
-	w.queue(p.id, grid.East)
-	w.queue(p.id, grid.South)
+	w.queueMove(p.id, grid.East)
+	w.queueMove(p.id, grid.South)
 	w.resolve()
 
 	if want := (grid.Pos{X: 1, Y: 2}); p.pos != want {
@@ -181,7 +181,7 @@ func TestResolveRefusesMoveIntoWall(t *testing.T) {
 	p := w.join()
 	p.pos = grid.Pos{X: 1, Y: 1}
 
-	w.queue(p.id, grid.North)
+	w.queueMove(p.id, grid.North)
 	w.resolve()
 
 	if want := (grid.Pos{X: 1, Y: 1}); p.pos != want {
@@ -198,7 +198,7 @@ func TestResolveRefusesCornerCut(t *testing.T) {
 	p := w.join()
 	p.pos = grid.Pos{X: 1, Y: 1}
 
-	w.queue(p.id, grid.SouthEast)
+	w.queueMove(p.id, grid.SouthEast)
 	w.resolve()
 
 	if want := (grid.Pos{X: 1, Y: 1}); p.pos != want {
@@ -215,8 +215,8 @@ func TestResolveIsSimultaneous(t *testing.T) {
 	a.pos = grid.Pos{X: 1, Y: 1}
 	b.pos = grid.Pos{X: 3, Y: 3}
 
-	w.queue(a.id, grid.East)
-	w.queue(b.id, grid.West)
+	w.queueMove(a.id, grid.East)
+	w.queueMove(b.id, grid.West)
 
 	before := w.tick
 	w.resolve()
@@ -242,15 +242,15 @@ func TestPlayersStack(t *testing.T) {
 	a.pos = grid.Pos{X: 1, Y: 1}
 	b.pos = grid.Pos{X: 2, Y: 1}
 
-	w.queue(a.id, grid.East)
+	w.queueMove(a.id, grid.East)
 	w.resolve()
 
 	if a.pos != b.pos {
 		t.Fatalf("a at %v, b at %v, should share a cell", a.pos, b.pos)
 	}
 
-	w.queue(a.id, grid.East)
-	w.queue(b.id, grid.West)
+	w.queueMove(a.id, grid.East)
+	w.queueMove(b.id, grid.West)
 	w.resolve()
 
 	if a.pos == b.pos {
@@ -260,7 +260,7 @@ func TestPlayersStack(t *testing.T) {
 
 func TestQueueForUnknownPlayerIsIgnored(t *testing.T) {
 	w := testWorld(t, openRoom)
-	w.queue(999, grid.East)
+	w.queueMove(999, grid.East)
 	w.resolve()
 }
 

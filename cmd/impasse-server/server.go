@@ -103,13 +103,22 @@ func (s *server) reader(c *conn) {
 				log.Printf("client %d: bad queue: %v\n", c.id, err)
 				continue
 			}
-			d, ok := grid.ParseDirection(q.Dir)
-			if !ok {
-				log.Printf("client %d: unknown direction %q\n", c.id, q.Dir)
-				continue
-			}
-			s.cmds <- func(s *server) {
-				s.world.queue(c.id, d)
+			switch q.Action {
+			case proto.ActionMove:
+				d, ok := grid.ParseDirection(q.Dir)
+				if !ok {
+					log.Printf("client %d: unknown direction %q\n", c.id, q.Dir)
+					continue
+				}
+				s.cmds <- func(s *server) {
+					s.world.queueMove(c.id, d)
+				}
+			case proto.ActionLoot:
+				s.cmds <- func(s *server) {
+					s.world.queueLoot(c.id)
+				}
+			default:
+				log.Printf("client %d: unknown action %q\n", c.id, q.Action)
 			}
 		default:
 			log.Printf("client %d: unexpected message %q\n", c.id, kind)

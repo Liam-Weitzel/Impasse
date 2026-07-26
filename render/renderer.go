@@ -139,6 +139,30 @@ func (r *Renderer) RenderSpheresMesh(
 	}
 }
 
+// RenderShapeAt draws one shape with an extra model transform and its own
+// colour, for things that move independently of the world. Call it after
+// RenderMesh, which binds the program and sets the shared uniforms.
+func (r *Renderer) RenderShapeAt(
+	view, model mgl32.Mat4,
+	cs *CompiledShape,
+	col mgl32.Vec3,
+) {
+	mvMat := view.Mul4(model)
+	normalMat := mvMat.Inv().Transpose()
+
+	gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &mvMat[0])
+	gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &normalMat[0])
+	gl.Uniform3fv(r.state.ambientColLoc, 1, &col[0])
+
+	cs.Render(r.state)
+
+	// Leave the shared matrices as the caller set them.
+	gl.UniformMatrix4fv(r.state.mvMatLoc, 1, false, &view[0])
+	viewNormal := view.Inv().Transpose()
+	gl.UniformMatrix4fv(r.state.normalMatLoc, 1, false, &viewNormal[0])
+	gl.Uniform3fv(r.state.ambientColLoc, 1, &r.ambientCol[0])
+}
+
 func (r *Renderer) ReadImage(img *image.RGBA) {
 
 	gl.ReadBuffer(gl.COLOR_ATTACHMENT0)

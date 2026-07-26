@@ -20,11 +20,14 @@ const (
 	// Spawn is floor that also marks where players enter the world. A map
 	// may hold at most one.
 	Spawn Cell = 'S'
+	// Objective is floor that starts with a pickup on it. Whether the pickup
+	// is still there is world state, not map state.
+	Objective Cell = '*'
 )
 
 // Walkable reports whether a player may stand on this cell.
 func (c Cell) Walkable() bool {
-	return c == Floor || c == Spawn
+	return c == Floor || c == Spawn || c == Objective
 }
 
 // Grid is the world. Origin is the top left, x runs east, y runs south.
@@ -215,7 +218,7 @@ func Parse(r io.Reader) (*Grid, error) {
 				spawn = Pos{X: i, Y: len(rows)}
 				hasSpawn = true
 				row[i] = Spawn
-			case Wall, Floor:
+			case Wall, Floor, Objective:
 				row[i] = Cell(r)
 			default:
 				return nil, fmt.Errorf(
@@ -273,6 +276,20 @@ func (g *Grid) Lines() []string {
 			row[x] = byte(g.cells[y*g.width+x])
 		}
 		out[y] = string(row)
+	}
+	return out
+}
+
+// Objectives lists the cells marked with a pickup, in reading order. This is
+// the starting layout. Which pickups are still uncollected is world state.
+func (g *Grid) Objectives() []Pos {
+	var out []Pos
+	for y := 0; y < g.height; y++ {
+		for x := 0; x < g.width; x++ {
+			if g.cells[y*g.width+x] == Objective {
+				out = append(out, Pos{X: x, Y: y})
+			}
+		}
 	}
 	return out
 }

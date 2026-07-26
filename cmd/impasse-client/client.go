@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Liam-Weitzel/Impasse/gfx"
 	"github.com/Liam-Weitzel/Impasse/grid"
@@ -25,8 +26,13 @@ const (
 	// animation rate and has nothing to do with the tick rate.
 	framesPerSecond = 15
 
-	playerRadius = cellSize * 0.3
+	playerRadius    = cellSize * 0.3
+	objectiveRadius = cellSize * 0.18
+	// Pickups float clear of the floor so they read at a steep camera angle.
+	objectiveHeight = cellSize * 0.3
 )
+
+var objectiveColor = mgl32.Vec3{0.95, 0.80, 0.25}
 
 // attendee is another player, or us. Positions are held as the cell we came
 // from and the cell we are going to, so a move can be drawn part way through.
@@ -64,6 +70,15 @@ type client struct {
 	attendees map[uint64]*attendee
 	spheres   []render.SpherePosition
 
+	// objectives are the uncollected pickups, in world coordinates.
+	objectives []mgl32.Vec3
+	objSphere  *render.Sphere
+	arrow      []*render.CompiledShape
+
+	score     int
+	channel   int
+	lootTicks int
+
 	tickDuration time.Duration
 	tickAt       time.Time
 
@@ -97,6 +112,7 @@ func startClient(
 		camera:          newCamera(),
 		attendees:       make(map[uint64]*attendee),
 		tickDuration:    time.Duration(welcome.TickMS) * time.Millisecond,
+		lootTicks:       welcome.LootTicks,
 		idleDuration:    idleDuration,
 		sessionDuration: sessionDuration,
 	}
@@ -167,6 +183,20 @@ func (c *client) run() error {
 	}
 	defer c.sphere.Delete()
 
+	if c.objSphere, err = render.NewSphere(objectiveRadius, 10, 10, false); err != nil {
+		return err
+	}
+	defer c.objSphere.Delete()
+
+	if c.arrow, err = buildArrow(); err != nil {
+		return err
+	}
+	defer func() {
+		for _, cs := range c.arrow {
+			cs.Delete()
+		}
+	}()
+
 	if c.shapes, err = buildGridMesh(c.g); err != nil {
 		return err
 	}
@@ -234,6 +264,11 @@ func (c *client) applyState(state proto.State) {
 		seen[p.ID] = true
 		to := cellCenter(grid.Pos{X: p.X, Y: p.Y})
 
+		if p.ID == c.userID {
+			c.score = p.Score
+			c.channel = p.Channel
+		}
+
 		a := c.attendees[p.ID]
 		if a == nil {
 			c.attendees[p.ID] = &attendee{
@@ -245,6 +280,13 @@ func (c *client) applyState(state proto.State) {
 		}
 		a.from = a.at(alpha)
 		a.to = to
+	}
+
+	c.objectives = c.objectives[:0]
+	for _, o := range state.Objectives {
+		pos := cellCenter(grid.Pos{X: o.X, Y: o.Y})
+		pos[2] += objectiveHeight
+		c.objectives = append(c.objectives, pos)
 	}
 
 	for id := range c.attendees {
@@ -312,8 +354,17 @@ func (c *client) handleRune(r rune) {
 		return
 	}
 
+	// S sits in the middle of the movement cluster and does the standing
+	// still job: channel the pickup underfoot, or simply hold position when
+	// there is nothing there.
+	if r == 's' {
+		c.con.queueLoot()
+		c.lastAction = time.Now()
+		return
+	}
+
 	if d := grid.DirectionForKey(r); d != grid.None {
-		c.con.queue(d)
+		c.con.queueMove(d)
 		c.lastAction = time.Now()
 	}
 }
@@ -340,10 +391,16 @@ func (c *client) drawHUD() {
 		Foreground(tcell.ColorYellow)
 
 	gfx.WriteString(c.screen, 0, 0,
-		"ESC: Quit|QWEADZXC: Move|Up/Down: Tilt|Left/Right: Turn|+/-: Zoom",
+		"ESC: Quit|QWEADZXC: Move|S: Loot|Arrows: Camera|+/-: Zoom",
 		st)
 
 	width, height := c.screen.Size()
+
+	status := fmt.Sprintf("Score: %d|Left: %d", c.score, len(c.objectives))
+	if c.channel > 0 {
+		status += fmt.Sprintf("|Looting %d/%d", c.channel, c.lootTicks)
+	}
+	gfx.WriteString(c.screen, width-utf8.RuneCountInString(status), 0, status, st)
 
 	total := c.renderDuration + c.conversionDuration + c.termDuration
 	var fps float64
@@ -389,6 +446,19 @@ func (c *client) render() {
 		c.renderer.RenderSpheresMesh(view, c.sphere, c.spheres)
 	}
 
+	if len(c.objectives) > 0 {
+		c.spheres = c.spheres[:0]
+		for _, pos := range c.objectives {
+			c.spheres = append(c.spheres, render.SpherePosition{
+				Pos: pos,
+				Col: objectiveColor,
+			})
+		}
+		c.renderer.RenderSpheresMesh(view, c.objSphere, c.spheres)
+	}
+
+	c.drawArrow(view, alpha)
+
 	c.renderer.ReadImage(c.renderedImage)
 	t1 := time.Now()
 
@@ -402,6 +472,26 @@ func (c *client) render() {
 	c.renderDuration = t1.Sub(t0)
 	c.conversionDuration = t2.Sub(t1)
 	c.termDuration = t3.Sub(t2)
+}
+
+// drawArrow points at the nearest uncollected pickup by straight-line bearing.
+// Nothing is drawn once they are all gone.
+func (c *client) drawArrow(view mgl32.Mat4, alpha float32) {
+	me := c.attendees[c.userID]
+	if me == nil {
+		return
+	}
+
+	from := me.at(alpha)
+	target, ok := nearestTo(from, c.objectives)
+	if !ok {
+		return
+	}
+
+	model := arrowTransform(from, target)
+	for _, cs := range c.arrow {
+		c.renderer.RenderShapeAt(view, model, cs, arrowColor)
+	}
 }
 
 func (c *client) updateProjection(aspect float32) {

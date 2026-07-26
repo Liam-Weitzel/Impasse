@@ -67,6 +67,23 @@ about resolution is continuous.
 Players stack. Nothing blocks a move onto an occupied cell, so geometry is the only
 thing that can refuse a move.
 
+Objectives are pickups marked `*` in the map. Standing on one and channelling for four
+ticks collects it. The channel is per player, so several people can race for the same
+pickup and each makes their own progress, and it resets to nothing the moment that
+player does anything else.
+
+A pickup only comes free when exactly one player completes a channel on that tick. If
+two or more finish together nobody takes it, and they sit there at a full channel until
+one of them stops. The tick after that, the other collects. This is the standoff the
+game is named for.
+
+It also means attacking into a standoff loses it. Casting a stun is not looting, so it
+drops the attacker's own channel, leaving the opponent as the sole finisher a full tick
+before the stun can land. Stun earns its keep earlier, while someone is still climbing
+their channel, where spending one tick to erase two of theirs pays off.
+
+Collected pickups do not come back. Respawn is undesigned.
+
 ### Protocol
 
 JSON objects, one per line. `welcome` carries the player id, the tick length and the
@@ -130,8 +147,9 @@ Run the server:
 ./bin/impasse-server --renderer ./bin/impasse-client --map maps/open.txt
 ```
 
-Maps are plain ASCII. `#` is wall, `.` is floor and `S` is the spawn point. Edit one in
-any text editor, restart the server, and the new geometry is there.
+Maps are plain ASCII. `#` is wall, `.` is floor, `S` is the spawn point and `*` is an
+objective. Edit one in any text editor, restart the server, and the new geometry is
+there.
 
 Every player enters on the `S`, so the start of a round is a scramble out of the same
 door. A map may hold at most one, and two is an error. A map with no `S` still loads,
@@ -228,10 +246,17 @@ Milestone 1, the loop:
 * Added `S` to the map format for the spawn point. All players start there.
 * `maps/open.txt`, a wide map for exercising 8 way movement.
 
-### Next
+Milestone 2, objectives:
 
-Milestone 2, objectives. 4-tick loot channel and the in-world nearest-objective arrow,
-pointed by straight-line bearing.
+* `*` in the map places a pickup. Four ticks of channelling collects it.
+* Per player channels, reset by any other action.
+* Simultaneous completion collects nothing. The standoff holds until one player
+  stops, and the other takes it on the next tick.
+* An in-world arrow above your own marker points at the nearest pickup by straight
+  line bearing. It will point through walls on purpose. It says where, never how.
+* Score and pickups remaining in the HUD, `S` to loot.
+
+### Next
 
 Milestone 3, stun. 1 cell range checked at cast, 1 tick startup, 2 tick duration, 3
 tick cooldown, full loot reset.
