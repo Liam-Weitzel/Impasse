@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
 """A reference Impasse bot.
 
-    ./impasse-server --map maps/open.txt
-    ssh -p2222 localhost token          # prints your bot token
     python3 examples/bot.py --token <token>
 
 It walks to the nearest pickup and channels it. That is all. It is deliberately
-naive so the protocol is easy to read off, not because greedy nearest is a good
-strategy. It is not: everyone else is racing you to the same pickups, and
-working out which ones are worth going for is the actual game.
+naive.
 
-The server sends grid data, never a graph. Building connectivity out of the
-cells is the bot's job, and the flood fill below is the whole of it.
 """
 
 import argparse
@@ -32,6 +26,9 @@ class Connection:
             self.sock.connect(address[len("unix:"):])
         else:
             host, _, port = address.rpartition(":")
+            # getaddrinfo wants a bare address, so [::1]:2223 loses its brackets.
+            if host.startswith("[") and host.endswith("]"):
+                host = host[1:-1]
             self.sock = socket.create_connection((host or "127.0.0.1", int(port)))
         self.stream = self.sock.makefile("rwb")
         # Every client authenticates before anything else. The token ties the
