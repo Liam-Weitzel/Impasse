@@ -10,6 +10,8 @@ the rendering stack. The game is new work. MIT licensed, see [LICENSE](./LICENSE
 
 Written in a weekend, largely with Claude Code (Opus 5) as an experiment.
 
+![Impasse rendered in a terminal](./demo.png)
+
 ## Running it
 
 You need a GitHub OAuth app with device flow enabled. Its client id is not a secret, but
