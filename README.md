@@ -8,6 +8,8 @@ Impasse started as a fork of [ssh3d](https://gitlab.com/sascha.l.teichmann/ssh3d
 experiment in rendering real-time 3D into a terminal over SSH. That experiment supplies
 the rendering stack. The game is new work. MIT licensed, see [LICENSE](./LICENSE).
 
+Written in a weekend, largely with Claude Code (Opus 5) as an experiment.
+
 ## Running it
 
 You need a GitHub OAuth app with device flow enabled. Its client id is not a secret, but
